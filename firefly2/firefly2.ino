@@ -385,10 +385,53 @@ void off(byte opts = 0) {
 
 // PATTERN_TWINKLE:
 void randomTwinkle( ) {
+#ifdef DEBUG
+    Serial.println("Begin randomTwinkle");
+#endif                
+    int lantern_on = 0; // LED 1 = enabled, 0 = disabled 
+    int wait_millis = 0; // time to stay either on or off
+    unsigned long clock_elapsed = 0; // counting how long it's been on or off
+
+    unsigned long clock_current = 0; //this variable will be updated each iteration of loop
+    unsigned long clock_recent = 0; //no time has passed yet
+    
+    while(true) {
+        clock_recent = clock_current; //save clock_current from the previous loop() to clock_recent
+        clock_current = millis(); //update to "now"
+        //this is roll-over proof, if clock_current is small, and clock_recent large, 
+        //the result rolls over to a small positive value:
+        clock_elapsed = clock_elapsed + (clock_current - clock_recent);    
+
+//        debounceInputs();
+        
+        if (clock_elapsed >= wait_millis) { //time to switch
+#ifdef DEBUG
+                Serial.print("Blinker: ");
+                Serial.print(lantern_on);
+                Serial.print("   Timer: ");
+                Serial.println(clock_elapsed);
+#endif                
+            if (lantern_on == 1) { //the light was previously turned on
+                wait_millis = random(1500, 3999);
+                blinkerLed(LOW);
+                lantern_on = 0;
+            }
+            else { //the light was/is off
+                wait_millis = random(300, 1800);
+                blinkerLed(HIGH);
+                lantern_on = 1;
+            }
+            clock_elapsed = 0;
+        }
+//        if ( handleInputs() ) {
+//            return;
+//        }
+    }
 }
 
 // PATTERN_FIREFLY:
 void teamFirefly( ) {
+
 }
 
 // PATTERN_CLOCKSYNC:
