@@ -233,99 +233,6 @@ static void handleSerialInput (char c) {
     showHelp();
 }
 
-/******************************************************************************  
- * debounce.c  
- * written by Kenneth A. Kuhn  
- * version 1.00  
- * 
- * This is an algorithm that debounces or removes random or spurious  
- * transistions of a digital signal read as an input by a computer.  This is  
- * particularly applicable when the input is from a mechanical contact.  An  
- * integrator is used to perform a time hysterisis so that the signal must  
- * persistantly be in a logical state (0 or 1) in order for the output to change  
- * to that state.  Random transitions of the input will not affect the output  
- * except in the rare case where statistical clustering is longer than the  
- * specified integration time.
- * 
- * The following example illustrates how this algorithm works.  The sequence  
- * labeled, real signal, represents the real intended signal with no noise.  The  
- * sequence labeled, corrupted, has significant random transitions added to the  
- * real signal.  The sequence labled, integrator, represents the algorithm  
- * integrator which is constrained to be between 0 and 3.  The sequence labeled,  
- * output, only makes a transition when the integrator reaches either 0 or 3.  
- * Note that the output signal lags the input signal by the integration time but  
- * is free of spurious transitions.  
- * 
- * real signal 0000111111110000000111111100000000011111111110000000000111111100000  
- * corrupted   0100111011011001000011011010001001011100101111000100010111011100010  
- * integrator  0100123233233212100012123232101001012321212333210100010123233321010  
- * output      0000001111111111100000001111100000000111111111110000000001111111000  
- * I have been using this algorithm for years and I show it here as a code  
- * fragment in C.  The algorithm has been around for many years but does not seem  
- * to be widely known.  Once in a rare while it is published in a tech note.  It  
- * is notable that the algorithm uses integration as opposed to edge logic  
- * (differentiation).  It is the integration that makes this algorithm so robust  
- * in the presence of noise.  
- * 
- ******************************************************************************/
-/* The following parameters tune the algorithm to fit the particular  
- application.  SAMPLE_FREQUENCY indicates how many times per second a computer
- samples a  mechanical contact and DEBOUNCE_TIME indicates the integration time  used to remove bounce.
- 
- Note: DEBOUNCE_TIME is in seconds and SAMPLE_FREQUENCY is in Hertz */
-
-//#define DEBOUNCE_TIME       0.3  
-//#define SAMPLE_FREQUENCY    5
-//#define MAXIMUM             (DEBOUNCE_TIME * SAMPLE_FREQUENCY)
-#define MAXIMUM         4
-#define MAXIMUM_C       2
-
-//unsigned int input;       /* 0 or 1 depending on the input signal */ 
-static unsigned int integrator[3];  /* Will range from 0 to the specified MAXIMUM */
-
-static unsigned int output[3];      /* Cleaned-up version of the input signal */
-
-static unsigned int maximum[3] = {
-  4,4,2}; 
-
-unsigned int debounce(uint8_t input, char button) {
-
-  // determine which button, a, b or c.
-  if( button < 97 || button > 99 )
-    return 0;
-  int i = button-97; // 0, 1, 2
-
-  /* Step 1: Update the integrator based on the input signal.  Note that the  
-   integrator follows the input, decreasing or increasing towards the limits as  
-   determined by the input state (0 or 1). */
-
-  if (!input) 
-  {  
-    if (integrator[i] > 0)  
-      integrator[i]--;  
-  }  
-  else if (integrator[i] < maximum[i])  
-    integrator[i]++;
-
-
-  /* Step 2: Update the output state based on the integrator.  Note that the  
-   output will only change states if the integrator has reached a limit, either  
-   0 or MAXIMUM. */
-
-  if (integrator[i] == 0) {
-    output[i] = 0;
-    return 1;
-  } 
-  else if (integrator[i] >= maximum[i])  {  
-    output[i] = 1;  
-    integrator[i] = maximum[i];  /* defensive code if integrator got corrupted */
-
-    return 1;
-  }
-  return 0;
-}
-
-
 // Choose which 2 pins you will use for output.
 // Can be any valid output pins.
 static int dataPin = 5;       // 'yellow' wire
@@ -380,7 +287,7 @@ void off(byte opts = 0) {
   blinkerLed(LOW);
   
   delay(wait);
-  debounceInputs();
+//  debounceInputs();
 }
 
 // PATTERN_TWINKLE:
@@ -452,9 +359,9 @@ void clockSync( byte opts = 0){
 
   off(opts);
 
-  debounceInputs();
+//  debounceInputs();
   delay(random(0,2001)); //make sure everyone starts at a somewhat different time
-  debounceInputs();
+//  debounceInputs();
 
   while(true)
   {
@@ -472,7 +379,7 @@ void clockSync( byte opts = 0){
     time_end = time_start + time_on + ON_longer;
 
     while (millis() < time_end) { //how far are we from the start
-      debounceInputs();
+//      debounceInputs();
       if (rf12_recvDone() && !rf12_crc) { //did we get a good packet?
         sum_ON += millis() - time_start;
         ON_count++;
@@ -484,7 +391,7 @@ void clockSync( byte opts = 0){
     time_end = time_start + time_cycle + OFF_longer;
 
     while(millis() < time_end) {
-      debounceInputs();
+//      debounceInputs();
       if (rf12_recvDone() && rf12_crc == 0){
         sum_OFF += time_end - millis(); //how far are we from the start of the next cycle
         OFF_count++;
@@ -531,16 +438,16 @@ void clockSync( byte opts = 0){
 void modeSelect(uint8_t modeValue) {
   if( modeValue < 1 )
     modeValue = 1;
-  debounceInputs();
+//  debounceInputs();
   delay(wait);
-  debounceInputs();
+//  debounceInputs();
 }
 
 void identify( ) {
   uint8_t nodeid = (config.nodeId & 0x1F);
-  debounceInputs();
+//  debounceInputs();
   delay(wait);
-  debounceInputs();
+//  debounceInputs();
 }
 
 /* Helper functions */
@@ -692,20 +599,6 @@ int my_recvDone() {
   return( patternAvailable );
 }
 
-void debounceInputs() {
-
-  static byte prevC = 0;
-
-  inputA = !digitalRead(buttonA);
-  inputB = !digitalRead(buttonB);
-  inputC = (debounce(inputA&inputB, 'c')?output[2]:prevC);
-  if( inputC & prevC ) 
-    inputC = 0;
-  prevC = inputC;
-  inputA = (debounce(inputA, 'a')?output[0]:0);
-  inputB = (debounce(inputB, 'b')?output[1]:0);
-}
-
 // returns 1 if captured input should trigger a break in a loop
 int handleInputs() {
 
@@ -717,7 +610,7 @@ int handleInputs() {
     handleSerialInput(Serial.read());
 #endif
 
-  debounceInputs();
+//  debounceInputs();
 
   // update autonomous value
   if( autonomous != !digitalRead(switchT) ) {
