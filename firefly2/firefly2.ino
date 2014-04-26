@@ -25,6 +25,9 @@
 
 #define COLLECT 0x20 // collect mode, i.e. pass incoming without sending acks
 
+MilliTimer sendTimer;
+byte needToSend;
+
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 // RF12 configuration setup code
 
@@ -144,6 +147,7 @@ static void showHelp () {
   rf12_config();
 }
 
+//this function is intended only to run in debug mode!!
 static void handleSerialInput (char c) {
   if ('0' <= c && c <= '9')
     value = 10 * value + c - '0';
@@ -542,19 +546,25 @@ int my_recvDone() {
 
   if ( !g_patternAvailable ) {
 
-#ifdef DEBUG
+    // (receive a network message if one exists; keep the RF12 library happy)
+    // Check to see if a packet has been received, returns true if it has:
     if ( rf12_recvDone() ) {
       byte n = rf12_len;
       if (rf12_crc == 0) {
+#ifdef DEBUG
         Serial.print("OK");
+#endif
       }
       else {
         if (quiet)
           return 0;
+#ifdef DEBUG
         Serial.println("bad crc: ");
         if (n > 20) // print at most 20 bytes if crc is wrong
           n = 20;
+#endif
       }
+#ifdef DEBUG
       if (config.group == 0) {
         Serial.print("G ");
         Serial.print((int) rf12_grp);
@@ -566,8 +576,8 @@ int my_recvDone() {
         Serial.print((int) rf12_data[i]);
       }
       Serial.println();
-    }
 #endif
+    }
 
     if (rf12_crc == 0) {
       // in radio mode, tell clock sync to piss off
@@ -587,6 +597,39 @@ int my_recvDone() {
   return( g_patternAvailable );
 }
 
+int my_send() {
+    // check the timer for sending a network message
+    if (sendTimer.poll(30000)) // 30 seconds
+        needToSend = 1;
+        
+    //if rf12_canSend returns 1, then you must subsequently call rf12_sendStart.
+    if (needToSend && rf12_canSend()) {
+        needToSend = 0;
+        activityLed(1);
+        //do yo thang:
+#ifdef DEBUG
+        Serial.print(" -> ");
+        Serial.print((int) sendLen);
+        Serial.println(" b");
+#endif
+        byte header = cmd == 'a' ? RF12_HDR_ACK : 0;
+        if (dest)
+            header |= RF12_HDR_DST | dest;
+#ifdef DEBUG
+        Serial.print("Header: "); Serial.print((int)header);
+        Serial.print(" Data: ");
+        for( int d=0; d<sendLen; d++)
+          Serial.print((int) databuffer[d]);
+        Serial.print(" Length: "); Serial.print((int) sendLen);
+        Serial.println();
+#endif
+        rf12_sendStart(header, databuffer, sendLen);
+        cmd = 0;
+
+        activityLed(0);
+    }
+}
+
 // returns 1 if captured input should trigger a break in a loop
 int handleInputs() {
 
@@ -601,6 +644,7 @@ int handleInputs() {
 //  debounceInputs();
 
   if ( my_recvDone() && !rf12_crc ) {
+      //my_recvDone alters g_pattern, alters/returns g_patternAvailable
     trigger = 1;
   } 
 
@@ -636,10 +680,16 @@ void setup() {
   Serial.print("\n[Firefly2 04-2014]");
   showHelp();
 #endif
+    randomSeed(analogRead(0));
 }
 
 void loop() {
-  handleInputs();
-  runPattern(g_pattern);
+  handleInputs();  
+    //checks for serial input in debug mode
+    //calls my_recvDone()
+    //returns 1 if input was captured
+  my_send();
+  runPattern(g_pattern); 
+    //switches control to the current pattern
   g_patternAvailable = 0;
 }
