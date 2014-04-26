@@ -157,12 +157,15 @@ void loop () {
         }
     }
     
-    // receive a network message if one exists; keep the RF12 library happy
+    // (receive a network message if one exists; keep the RF12 library happy)
+    // Check to see if a packet has been received, returns true if it has:
     if (rf12_recvDone()) {
+        // check that the packet was received without error:
         if (rf12_crc == 0) {
-          // the message is good, unpack the timestamp data:
+            // the message is good, we can now check origin info
+            // unpack the timestamp data:
             unsigned long timestamp_received = receive();
-          // accept feedback and self-regulate (compute a new timestamp_now):
+            // accept feedback and self-regulate (compute a new timestamp_now):
             sync_lighting_time(timestamp_received);
         } 
     }
