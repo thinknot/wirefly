@@ -10,7 +10,7 @@
 // comment out below before compiling production codez!
 #define DEBUG 1
 
-#define UPSIDE_DOWN_LEDS 1
+//#define UPSIDE_DOWN_LEDS 1
 
 // Configure some values in EEPROM for easy config of the RF12 later on.
 // 2009-05-06 <jcw@equi4.com> http://opensource.org/licenses/mit-license.php
@@ -21,7 +21,7 @@
 #define DATAFLASH   1   // check for presence of DataFlash memory on JeeLink
 #define FLASH_MBIT  16  // support for various dataflash sizes: 4/8/16 Mbit
 
-#define LED_PIN     9   // activity LED, comment out to disable
+//#define LED_PIN     9   // on-board activity LED, comment out to disable
 
 #define COLLECT 0x20 // collect mode, i.e. pass incoming without sending acks
 
@@ -208,6 +208,11 @@ static void handleSerialInput (char c) {
     case 'e': // erase specified 4Kb block
     case 'w': // wipe entire flash memory
     case 'z': // broadcast RGB LED Strip pattern
+                cmd = c;
+                sendLen = top;
+                dest = value;
+                memcpy(databuffer, stack, top);
+                break;   
     case 'h':
     case 'j':
     case 'm':
@@ -249,10 +254,8 @@ static int clockPin = 6;      // 'green' wire
 #define PATTERN_IDENTIFICATION  16
 
 #define HANDLEINPUTS_TIME  22 //microseconds
-#define AUTONOMOUS_HANDLEINPUTS_TIME  30 //microseconds
 
 static uint8_t pattern = 0;
-static int autonomous = 0;
 static int stopChooseAnother = 0;
 static unsigned long wait = 50;
 static int patternAvailable = 0;
@@ -485,10 +488,10 @@ unsigned int Wheel(byte WheelPos)
 
 void runPattern(int patternToRun = 0) {
   activityLed(1);
-
+/*
   if( !autonomous )
     memcpy(my_data+1, const_cast<uint8_t*>(rf12_data+1), RF12_BUFFER_SIZE-1);
-
+*/
   int same = (pattern == patternToRun);
   pattern = patternToRun;
 
@@ -605,9 +608,7 @@ int handleInputs() {
 
 //  debounceInputs();
 
-  if( autonomous ) {
-  } 
-  else if( my_recvDone() && !rf12_crc ) {
+  if ( my_recvDone() && !rf12_crc ) {
     trigger = 1;
   } 
 
