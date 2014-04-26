@@ -238,14 +238,6 @@ static void handleSerialInput (char c) {
     showHelp();
 }
 
-// Choose which 2 pins you will use for output.
-// Can be any valid output pins.
-static int dataPin = 5;       // 'yellow' wire
-static int clockPin = 6;      // 'green' wire
-// Don't forget to connect 'blue' to ground and 'red' to +5V
-
-// Timer 1 is also used by the strip to send pixel clocks
-
 #define PATTERN_OFF		0
 #define PATTERN_TWINKLE		1
 #define PATTERN_FIREFLY         2
@@ -255,10 +247,10 @@ static int clockPin = 6;      // 'green' wire
 
 #define HANDLEINPUTS_TIME  22 //microseconds
 
-static uint8_t pattern = 0;
-static int stopChooseAnother = 0;
-static unsigned long wait = 50;
-static int patternAvailable = 0;
+static uint8_t g_pattern = 0;
+static int g_stopChooseAnother = 0;
+static unsigned long g_wait = 50;
+static int g_patternAvailable = 0;
 
 #define PIX_COUNT		30
 #define RF12_BUFFER_SIZE	66
@@ -282,7 +274,7 @@ void off(byte opts = 0) {
 */
   blinkerLed(LOW);
   
-  delay(wait);
+  delay(g_wait);
 //  debounceInputs();
 }
 
@@ -435,14 +427,14 @@ void modeSelect(uint8_t modeValue) {
   if( modeValue < 1 )
     modeValue = 1;
 //  debounceInputs();
-  delay(wait);
+  delay(g_wait);
 //  debounceInputs();
 }
 
 void identify( ) {
   uint8_t nodeid = (config.nodeId & 0x1F);
 //  debounceInputs();
-  delay(wait);
+  delay(g_wait);
 //  debounceInputs();
 }
 
@@ -492,10 +484,10 @@ void runPattern(int patternToRun = 0) {
   if( !autonomous )
     memcpy(my_data+1, const_cast<uint8_t*>(rf12_data+1), RF12_BUFFER_SIZE-1);
 */
-  int same = (pattern == patternToRun);
-  pattern = patternToRun;
+  int same = (g_pattern == patternToRun);
+  g_pattern = patternToRun;
 
-  switch( pattern ) {
+  switch( g_pattern ) {
   default:
   case PATTERN_OFF:
     off( 1 );  // all lights off including the lantern
@@ -542,20 +534,20 @@ void my_delay(unsigned long wait_time) {
 }
 
 int my_recvDone() {
-  // rf12_recvDone() needs to be constantly called in order to recieve new transmissions
-  // but we only care if CRC is ok
-  // if a new transmission came in and CRC is ok, don't poll recv state again or else
-  // rf12_crc, rf12_len, and rf12_data will be reset
-  // once data has been processed (in loop()) you should reset the patternAvailable flag
+  // rf12_recvDone() needs to be constantly called in order to recieve new transmissions,
+  // but we only care if CRC is ok.
+  // If a new transmission comes in and CRC is ok, don't poll recv state again or else
+  // rf12_crc, rf12_len, and rf12_data will be reset.
+  // Once data has been processed (in loop()) you should reset the patternAvailable flag
 
-  if( !patternAvailable ) {
+  if ( !g_patternAvailable ) {
 
 #ifdef DEBUG
-    if( rf12_recvDone() ) {
+    if ( rf12_recvDone() ) {
       byte n = rf12_len;
       if (rf12_crc == 0) {
         Serial.print("OK");
-      } 
+      }
       else {
         if (quiet)
           return 0;
@@ -579,7 +571,7 @@ int my_recvDone() {
 
     if (rf12_crc == 0) {
       // in radio mode, tell clock sync to piss off
-      pattern = ((rf12_len>0&&rf12_data[0]!=PATTERN_CLOCKSYNC)?rf12_data[0]:pattern);
+      g_pattern = ((rf12_len>0&&rf12_data[0]!=PATTERN_CLOCKSYNC)?rf12_data[0]:g_pattern);
 
       if (RF12_WANTS_ACK && (config.nodeId & COLLECT) == 0) {
 #ifdef DEBUG
@@ -589,10 +581,10 @@ int my_recvDone() {
       }
     }
 
-    patternAvailable = !rf12_crc;
+    g_patternAvailable = !rf12_crc;
   }
 
-  return( patternAvailable );
+  return( g_patternAvailable );
 }
 
 // returns 1 if captured input should trigger a break in a loop
@@ -612,7 +604,7 @@ int handleInputs() {
     trigger = 1;
   } 
 
-#ifdef DEBUG
+#ifdef DEBUG 
   digitalWrite(A1, LOW);
 #endif
 
@@ -635,9 +627,9 @@ void setup() {
     saveConfig();
   }
 
-  patternAvailable = 0;
+  g_patternAvailable = 0;
 
-  pattern = PATTERN_TWINKLE;   // Wake up and twinkle
+  g_pattern = PATTERN_TWINKLE;   // Wake up and twinkle
 
 #ifdef DEBUG
   Serial.begin(57600);
@@ -648,6 +640,6 @@ void setup() {
 
 void loop() {
   handleInputs();
-  runPattern(pattern);
-  patternAvailable = 0;
+  runPattern(g_pattern);
+  g_patternAvailable = 0;
 }
