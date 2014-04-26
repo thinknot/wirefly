@@ -239,10 +239,6 @@ static int dataPin = 5;       // 'yellow' wire
 static int clockPin = 6;      // 'green' wire
 // Don't forget to connect 'blue' to ground and 'red' to +5V
 
-static int buttonA = 4; // digital 4 or DIO1
-static int buttonB = 7; // digital 7 or DIO4
-static int switchT = 14; // analog 0 or AI01
-
 // Timer 1 is also used by the strip to send pixel clocks
 
 #define PATTERN_OFF		0
@@ -257,9 +253,6 @@ static int switchT = 14; // analog 0 or AI01
 
 static uint8_t pattern = 0;
 static int autonomous = 0;
-static int inputA = 0;
-static int inputB = 0;
-static int inputC = 0;
 static int stopChooseAnother = 0;
 static unsigned long wait = 50;
 static int patternAvailable = 0;
@@ -612,98 +605,11 @@ int handleInputs() {
 
 //  debounceInputs();
 
-  // update autonomous value
-  if( autonomous != !digitalRead(switchT) ) {
-    trigger = 1;
-    autonomous = !digitalRead(switchT);
-    off(); // cut off lights
-#ifdef DEBUG
-    if( autonomous )
-      Serial.println("entering autonomous mode");
-    else
-      Serial.println("message from the big, giant head!");
-#endif
-  }
-
   if( autonomous ) {
-    if( inputC ) {
-      trigger = 1;
-      off();
-      stopChooseAnother = !stopChooseAnother;
-      if( stopChooseAnother ) {
-#ifdef DEBUG
-        Serial.println("a and b -- menu entered");
-#endif
-        off(0);
-        my_data[0] = pattern;
-        pattern = PATTERN_MODESELECT;
-      }
-      else {
-#ifdef DEBUG
-        Serial.println("a and b -- menu exited");
-#endif
-        off(0);
-        pattern = my_data[0];
-      }
-
-    } 
-    else if (inputA) {
-      if( stopChooseAnother ) {
-#ifdef DEBUG
-        Serial.println("a -- cycle mode -1");
-#endif
-        off();
-        if( my_data[0] > 1 )
-          my_data[0]--;
-        else
-          my_data[0] = 1;
-      }
-      else {
-#ifdef DEBUG
-        Serial.println("a -- speed up!");
-#endif
-        wait = (wait>0?(wait-10):50); // speed up then wrap around back to default speed
-      }
-    } 
-    else if (inputB) {
-      if( stopChooseAnother ) {
-#ifdef DEBUG
-        Serial.println("a -- cycle mode +1");
-#endif
-        off();
-/*        
-        if( my_data[0] < PATTERN_LAST )
-          my_data[0]++;
-        else
-          my_data[0] = PATTERN_LAST;
-*/          
-      }
-      else
-#ifdef DEBUG
-        Serial.println("b -- flash LEDs");
-#endif
-      off(1); // simulate flash by turning off LEDs before continuing with pattern
-    }
-
   } 
   else if( my_recvDone() && !rf12_crc ) {
     trigger = 1;
   } 
-  else if( inputC ) {
-    wait = 50; // reset speed
-  } 
-  else if( inputA ) {
-#ifdef DEBUG
-    Serial.println("a -- speed up!");
-#endif
-    wait = (wait>0?(wait-10):50); // speed up then wrap around back to default speed
-  } 
-  else if( inputB ) {
-#ifdef DEBUG
-    Serial.println("b -- flash LEDs");
-#endif
-    off(1); // simulate flash by turning off LEDs before continuing with pattern
-  }
 
 #ifdef DEBUG
   digitalWrite(A1, LOW);
@@ -717,16 +623,6 @@ void setup() {
 #ifdef DEBUG
   pinMode(A1, OUTPUT);
 #endif
-
-  // setup on-board inputs
-  pinMode(switchT, INPUT);
-  pinMode(buttonA, INPUT);
-  pinMode(buttonB, INPUT);
-  // set pull-up resisters on AVR
-  digitalWrite(switchT, HIGH);
-  digitalWrite(buttonA, HIGH);
-  digitalWrite(buttonB, HIGH);
-
 
   if (rf12_config()) {
     config.nodeId = eeprom_read_byte(RF12_EEPROM_ADDR);
