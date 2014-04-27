@@ -641,6 +641,7 @@ int handleInputs() {
 
     if (! (g_pattern == original_pattern) ) {
         g_needToSend = 1; //be sure to tell your friends
+        trigger = 1; // hack: to detect if serial input has received
 #ifdef DEBUG
         Serial.println("handleInputs: new pattern detected!");
 #endif      
@@ -694,7 +695,9 @@ void setup() {
 // Pattern control switch!
 void runPattern(int patternToRun = 0) {
   activityLed(1);
-
+#ifdef DEBUG
+  Serial.print("Run pattern\n");
+#endif
   switch( g_pattern ) {
       default:
       case PATTERN_OFF:
