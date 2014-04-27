@@ -147,6 +147,25 @@ static void showHelp () {
   rf12_config();
 }
 
+#define PATTERN_OFF		0
+#define PATTERN_TWINKLE		1
+#define PATTERN_FIREFLY         2
+#define PATTERN_CLOCKSYNC	3
+#define PATTERN_MODESELECT	15
+#define PATTERN_IDENTIFICATION  16
+
+#define HANDLEINPUTS_TIME  22 //microseconds
+
+static uint8_t g_pattern = 0;
+static int g_stopChooseAnother = 0;
+static unsigned long g_wait = 50;
+static int g_patternReceived = 0;
+
+#define PIX_COUNT		30
+#define RF12_BUFFER_SIZE	66
+
+static uint8_t my_data[RF12_BUFFER_SIZE];
+
 //this function is intended only to run in debug mode!!
 static void handleSerialInput (char c) {
   if ('0' <= c && c <= '9')
@@ -225,8 +244,11 @@ static void handleSerialInput (char c) {
     case 'p':
     case 'u':
     case 'v':
-    case 'x':
-    case 'y':
+    case 'x': //switch to clocksync
+        g_pattern = PATTERN_CLOCKSYNC;
+        g_patternReceived = 1;
+        break;
+    case 'y': //switch to twinkle
     default:
       showHelp();
       break;
@@ -241,25 +263,6 @@ static void handleSerialInput (char c) {
   else if (c > ' ')
     showHelp();
 }
-
-#define PATTERN_OFF		0
-#define PATTERN_TWINKLE		1
-#define PATTERN_FIREFLY         2
-#define PATTERN_CLOCKSYNC	3
-#define PATTERN_MODESELECT	15
-#define PATTERN_IDENTIFICATION  16
-
-#define HANDLEINPUTS_TIME  22 //microseconds
-
-static uint8_t g_pattern = 0;
-static int g_stopChooseAnother = 0;
-static unsigned long g_wait = 50;
-static int g_patternAvailable = 0;
-
-#define PIX_COUNT		30
-#define RF12_BUFFER_SIZE	66
-
-static uint8_t my_data[RF12_BUFFER_SIZE];
 
 //=============================
 // PATTERN functions begin here
@@ -337,6 +340,9 @@ void teamFirefly( ) {
 
 // PATTERN_CLOCKSYNC:
 void clockSync( byte opts = 0){
+#ifdef DEBUG
+    Serial.println("Begin clockSync");
+#endif                    
   // milliseconds, about the time it takes to send a packet
   unsigned long time_on = 750; 
   unsigned long time_cycle = 3*750;
@@ -491,6 +497,9 @@ void runPattern(int patternToRun = 0) {
     memcpy(my_data+1, const_cast<uint8_t*>(rf12_data+1), RF12_BUFFER_SIZE-1);
 */
   int same = (g_pattern == patternToRun);
+  if (!same) {
+      g_needToSend = 1;
+  }
   g_pattern = patternToRun;
 
   switch( g_pattern ) {
@@ -539,76 +548,77 @@ void my_delay(unsigned long wait_time) {
     handleInputs();
 }
 
+void debugRecv() {
+    byte n = rf12_len;
+    if (rf12_crc == 0) {
+        Serial.print("OK");
+      }
+      else {
+        if (quiet)
+          return;
+        Serial.println("bad crc: ");
+        if (n > 20) // print at most 20 bytes if crc is wrong
+          n = 20;
+      }
+      
+      if (config.group == 0) {
+        Serial.print("G ");
+        Serial.print((int) rf12_grp);
+      }
+      Serial.print(' ');
+      Serial.print((int) rf12_hdr);
+      for (byte i = 0; i < n; ++i) {
+        Serial.print(' ');
+        Serial.print((int) rf12_data[i]);
+      }
+      Serial.println();
+}
+
 //=======================
-// Receive
+// my_recvDone
+// @returns: g_PatternReceived = 1 if a pattern was received successfully
 //=======================
 int my_recvDone() {
-
-  if ( !g_patternAvailable ) {
+  //if a pattern has not already been received then we should check
+  if ( !g_patternReceived ) {
     // (receive a network message if one exists; keep the RF12 library happy)
     // rf12_recvDone() needs to be constantly called in order to recieve new transmissions
     // it checks to see if a packet has been received, returns true if it has:
     if ( rf12_recvDone() ) {
 #ifdef DEBUG
-        Serial.print("01 g_patternAvailable ");
-        Serial.println(g_patternAvailable);
-#endif
-        byte n = rf12_len;
+        debugRecv();
+#endif        
+        // If a new transmission comes in and CRC is ok, don't poll recv state again,
+        // or else rf12_crc, rf12_len, and rf12_data will be reset.
         if (rf12_crc == 0) {
-  // If a new transmission comes in and CRC is ok, don't poll recv state again,
-  // or else rf12_crc, rf12_len, and rf12_data will be reset.
-#ifdef DEBUG
-            Serial.print("OK");
-#endif
-          }
-          else {
-            if (quiet)
-              return 0;
-#ifdef DEBUG
-            Serial.println("bad crc: ");
-            if (n > 20) // print at most 20 bytes if crc is wrong
-              n = 20;
-#endif
-          }
-#ifdef DEBUG
-          if (config.group == 0) {
-            Serial.print("G ");
-            Serial.print((int) rf12_grp);
-          }
-          Serial.print(' ');
-          Serial.print((int) rf12_hdr);
-          for (byte i = 0; i < n; ++i) {
-            Serial.print(' ');
-            Serial.print((int) rf12_data[i]);
-          }
-          Serial.println();
-#endif
-        if (rf12_crc == 0) {
+          // assign the pattern that we recieve, unless...
           // in radio mode, tell clock sync to piss off (ignore clocksync because she is crazy)
-          // otherwise, assign the pattern that we recieve
           g_pattern = ((rf12_len>0 && rf12_data[0]!=PATTERN_CLOCKSYNC) ? rf12_data[0] : g_pattern);
 
           if (RF12_WANTS_ACK && (config.nodeId & COLLECT) == 0) {
 #ifdef DEBUG
             Serial.println(" -> ack");
 #endif
+            //send an ack if some crazy out there wants it
             rf12_sendStart(RF12_ACK_REPLY, 0, 0);
           }
         }
-        g_patternAvailable = !rf12_crc;
+        // if we got a bad crc, then no pattern received. (this is a noop)
+        g_patternReceived = !rf12_crc;
       }
   }
-  return( g_patternAvailable );
+  return g_patternReceived;
 }
 
 //=======================
 // Send
 //=======================
 int my_send() {
+/*    
     // check the timer for sending a network message
     if (g_sendTimer.poll(3000)) // 3 seconds
         g_needToSend = 1;
-        
+*/        
     //if rf12_canSend returns 1, then you must subsequently call rf12_sendStart.
     if (g_needToSend && rf12_canSend()) {
         g_needToSend = 0;
@@ -652,7 +662,7 @@ int handleInputs() {
 //  debounceInputs();
 
   if ( my_recvDone() && !rf12_crc ) {
-      //my_recvDone alters g_pattern, alters/returns g_patternAvailable
+      //my_recvDone alters g_pattern, alters/returns g_patternReceived
     trigger = 1;
   } 
 
@@ -675,9 +685,8 @@ void setup() {
     saveConfig();
   }
 
-  g_patternAvailable = 0;
-
   g_pattern = PATTERN_TWINKLE;   // Wake up and twinkle
+  g_patternReceived = 1;
 
 #ifdef DEBUG
   Serial.begin(57600);
@@ -687,17 +696,16 @@ void setup() {
     randomSeed(analogRead(0));
 }
 
-void loop() {
-#ifdef DEBUG
-    Serial.print("00 g_patternAvailable ");
-    Serial.println(g_patternAvailable);
-#endif
+// A pattern should call this function (or some equivalent of sub-functions)
+// whenever reasonably possible to keep network comm and serial IO going. 
+void my_interrupt()
+{
     handleInputs();  //check for serial input, call my_recvDone()
-    my_send();
-    runPattern(g_pattern);  //switches control to the current pattern
-#ifdef DEBUG
-    Serial.print("99 g_patternAvailable ");
-    Serial.println(g_patternAvailable);
-#endif
-    g_patternAvailable = 0;
+    my_send(); //send the football if g_needToSend is true
+}
+
+void loop() {
+    runPattern(g_pattern);  // switches control to the current pattern
+    g_patternReceived = 0; // if we got here, the pattern has returned control.
+    my_interrupt();
 }
