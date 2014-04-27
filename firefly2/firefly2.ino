@@ -7,7 +7,7 @@
 #include <util/parity.h>
 
 #define MAJOR_VERSION RF12_EEPROM_VERSION // bump when EEPROM layout changes
-#define VERSION "[Wirefly 04-2014]"           // keep in sync with the above
+#define VERSION "[Wirefly 04-2014]"
 
 /// Save a few bytes of flash by declaring const if used more than once.
 const char INVALID1[] PROGMEM = "\rInvalid\n";
@@ -72,10 +72,15 @@ typedef struct {
 } RF12Config;
 
 static RF12Config config;
+
+// cmd may be set to: [0, 'a', 'c']
+// 0   no command
+// 'a' send request ack
+// 'c' send
 static char cmd;
 static word value;
 static byte stack[RF12_MAXDATA+4], top, sendLen, dest;
-static byte testCounter;
+static byte testCounter; //number of test packets sent
 
 static void addCh (char* msg, char c) {
   byte n = strlen(msg);
@@ -730,9 +735,11 @@ int my_send() {
 #endif        
         g_needToSend = 0;
         //do yo thang:
+#ifdef DEBUG
         showString(PSTR(" -> "));
         Serial.print((word) sendLen);
         showString(PSTR(" b\n"));
+#endif
         byte header = cmd == 'a' ? RF12_HDR_ACK : 0;
         if (dest)
             header |= RF12_HDR_DST | dest;
