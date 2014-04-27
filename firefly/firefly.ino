@@ -171,7 +171,7 @@ void loop () {
     }
     
     // check the timer for sending a network message
-    if (sendTimer.poll(30000)) // 30 seconds
+    if (sendTimer.poll(3000)) // 30 seconds
         needToSend = 1;
         
     //if rf12_canSend returns 1, then you must subsequently call rf12_sendStart.
