@@ -94,7 +94,7 @@ static void saveConfig () {
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-
+// Misc Wirefly stuff for the most part
 static unsigned long now () {
   // FIXME 49-day overflow
   return millis() / 1000;
@@ -114,6 +114,8 @@ static void blinkerLed (byte on) {
     port_three.mode(OUTPUT);
     port_three.digiWrite(on);
 }
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
 char helpText1[] PROGMEM = 
 "\n"
@@ -147,6 +149,8 @@ static void showHelp () {
   rf12_config();
 }
 
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+// Pattern control variables
 #define PATTERN_OFF		0
 #define PATTERN_TWINKLE		1
 #define PATTERN_FIREFLY         2
@@ -165,6 +169,9 @@ static int g_patternReceived = 0;
 #define RF12_BUFFER_SIZE	66
 
 static uint8_t my_data[RF12_BUFFER_SIZE];
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+// serial I/O
 
 //this function is intended only to run in debug mode!!
 static void handleSerialInput (char c) {
@@ -267,10 +274,10 @@ static void handleSerialInput (char c) {
     showHelp();
 }
 
-//=============================
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 // PATTERN functions begin here
-//============================= 
 
+// = = = = = = = = = = = = = = = = = = = = = = = = = = =
 // PATTERN_OFF: No color value, clear LEDs
 void off(byte opts = 0) {
 /*
@@ -288,6 +295,7 @@ void off(byte opts = 0) {
 //  debounceInputs();
 }
 
+// = = = = = = = = = = = = = = = = = = = = = = = = = = =
 // PATTERN_TWINKLE:
 void randomTwinkle( ) {
 #ifdef DEBUG
@@ -336,11 +344,13 @@ void randomTwinkle( ) {
     }
 }
 
+// = = = = = = = = = = = = = = = = = = = = = = = = = = =
 // PATTERN_FIREFLY:
 void teamFirefly( ) {
 
 }
 
+// = = = = = = = = = = = = = = = = = = = = = = = = = = =
 // PATTERN_CLOCKSYNC:
 void clockSync( byte opts = 0){
 #ifdef DEBUG
@@ -437,23 +447,8 @@ void clockSync( byte opts = 0){
   }
 }
 
-// only turn on the specified LED
-void modeSelect(uint8_t modeValue) {
-  if( modeValue < 1 )
-    modeValue = 1;
-//  debounceInputs();
-  delay(g_wait);
-//  debounceInputs();
-}
-
-void identify( ) {
-  uint8_t nodeid = (config.nodeId & 0x1F);
-//  debounceInputs();
-  delay(g_wait);
-//  debounceInputs();
-}
-
-/* Helper functions */
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+// Helper functions 
 
 // Create a 15 bit color value from R,G,B
 unsigned int Color(uint8_t r, uint8_t g, uint8_t b)
@@ -493,6 +488,8 @@ unsigned int Wheel(byte WheelPos)
   return(Color(r,g,b));
 }
 
+// = = = = = = = = = = = = = = = = = = = = = = = = = = =
+// Pattern control switch!
 void runPattern(int patternToRun = 0) {
   activityLed(1);
 /*
@@ -519,23 +516,12 @@ void runPattern(int patternToRun = 0) {
   case PATTERN_CLOCKSYNC:
     clockSync( );  // synchronizing firefly lanterns, the end-game
     break;
-  case PATTERN_MODESELECT:
-    /*if( !same ) {
-      off(1);*/
-      modeSelect( my_data[0] ); // show the given pattern numeric code
-    /*}*/
-    break;
-  case PATTERN_IDENTIFICATION:
-    /*if( !same ) {
-      off(1);*/
-      identify( ); // show the given pattern numeric code
-    /*}*/
-    break;
   }
 
   activityLed(0);
 }
 
+/*
 // don't waste cycles with delay(); poll for new inputs
 int my_delay_with_break(unsigned long wait_time) {
   unsigned long t0 = millis();
@@ -550,7 +536,12 @@ void my_delay(unsigned long wait_time) {
   while( millis() - t0 < wait_time )
     handleInputs();
 }
+*/
 
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+// Network communication
+
+// this just outputs received msgs to serial. Only gets called ifdef DEBUG
 void debugRecv() {
     byte n = rf12_len;
     if (rf12_crc == 0) {
@@ -577,10 +568,9 @@ void debugRecv() {
       Serial.println();
 }
 
-//=======================
+// = = = = = = = = = = = = = = = = = = = = = = = = = = =
 // my_recvDone
 // @returns: g_PatternReceived = 1 if a pattern was received successfully
-//=======================
 int my_recvDone() {
   //if a pattern has not already been received then we should check
   if ( !g_patternReceived ) {
@@ -613,9 +603,9 @@ int my_recvDone() {
   return g_patternReceived;
 }
 
-//=======================
-// Send
-//=======================
+// = = = = = = = = = = = = = = = = = = = = = = = = = = =
+// my_send
+
 int my_send() {
 /*    
     // check the timer for sending a network message
@@ -650,11 +640,13 @@ int my_send() {
     }
 }
 
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+// top-level interrupt functions 
+
 // handleInputs()
 // returns 1 if captured input should trigger a break in a loop
 //
 int handleInputs() {
-
   int trigger = 0;
 
 #ifdef DEBUG
@@ -672,8 +664,18 @@ int handleInputs() {
   return trigger;
 }
 
-void setup() {
+// A pattern should call this function (or some equivalent of sub-functions)
+// whenever reasonably possible to keep network comm and serial IO going. 
+void my_interrupt()
+{
+    handleInputs();  //check for serial input, call my_recvDone()
+    my_send(); //send the football if g_needToSend is true
+}
 
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+// Setup
+
+void setup() {
 #ifdef DEBUG
   pinMode(A1, OUTPUT);
 #endif
@@ -699,13 +701,8 @@ void setup() {
     randomSeed(analogRead(0));
 }
 
-// A pattern should call this function (or some equivalent of sub-functions)
-// whenever reasonably possible to keep network comm and serial IO going. 
-void my_interrupt()
-{
-    handleInputs();  //check for serial input, call my_recvDone()
-    my_send(); //send the football if g_needToSend is true
-}
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+// Main loop
 
 void loop() {
     runPattern(g_pattern);  // switches control to the current pattern
