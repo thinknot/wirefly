@@ -23,9 +23,6 @@
 
 #define COLLECT 0x20 // collect mode, i.e. pass incoming without sending acks
 
-MilliTimer g_sendTimer;
-byte g_needToSend;
-
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 // RF12 configuration setup code
 
@@ -161,7 +158,6 @@ static void showHelp () {
 static uint8_t g_pattern = 0;
 static int g_stopChooseAnother = 0;
 static unsigned long g_wait = 50;
-static int g_patternReceived = 0;
 
 #define PIX_COUNT		30
 #define RF12_BUFFER_SIZE	66
@@ -251,11 +247,9 @@ static void handleSerialInput (char c) {
     case 'v':
     case 'x': //switch to clocksync
         g_pattern = PATTERN_CLOCKSYNC;
-        g_patternReceived = 1;
         break;
     case 'y': //switch to twinkle
         g_pattern = PATTERN_TWINKLE;
-        g_patternReceived = 1;
         break;
     default:
       showHelp();
@@ -275,6 +269,9 @@ static void handleSerialInput (char c) {
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 // PATTERN functions begin here
 
+MilliTimer g_sendTimer;
+byte g_needToSend;
+
 // = = = = = = = = = = = = = = = = = = = = = = = = = = =
 // PATTERN_OFF: No color value, clear LEDs
 void off(byte opts = 0) {
@@ -289,7 +286,7 @@ void off(byte opts = 0) {
 */
   blinkerLed(LOW);
   
-  delay(g_wait);
+  delay(g_wait);  //TODO: need to go into low power mode here instead of delay
 //  debounceInputs();
 }
 
@@ -306,7 +303,7 @@ void randomTwinkle( ) {
     unsigned long clock_current = 0; //this variable will be updated each iteration of loop
     unsigned long clock_recent = 0; //no time has passed yet
     
-    while(true) {
+    while (true) {
         clock_recent = clock_current; //save clock_current from the previous loop() to clock_recent
         clock_current = millis(); //update to "now"
         //this is roll-over proof, if clock_current is small, and clock_recent large, 
@@ -334,13 +331,14 @@ void randomTwinkle( ) {
             }
             clock_elapsed = 0;
         }
-        if ( handleInputs() ) {
+        if ( my_interrupt() ) {
 #ifdef DEBUG
-                Serial.print("Twinkle: input received!");
+            Serial.println("Twinkle: input received!");
 #endif
             //we got a trigger, probably a network msg
-            if (g_pattern != PATTERN_TWINKLE)
+            if (g_pattern != PATTERN_TWINKLE) {
                 return;
+            }
         }
     }
 }
@@ -348,6 +346,11 @@ void randomTwinkle( ) {
 // = = = = = = = = = = = = = = = = = = = = = = = = = = =
 // PATTERN_FIREFLY:
 void teamFirefly( ) {
+/*    
+    // check the timer for sending a network message
+    if (g_sendTimer.poll(3000)) // 3 seconds
+        g_needToSend = 1;
+*/        
 
 }
 
@@ -489,39 +492,6 @@ unsigned int Wheel(byte WheelPos)
   return(Color(r,g,b));
 }
 
-// = = = = = = = = = = = = = = = = = = = = = = = = = = =
-// Pattern control switch!
-void runPattern(int patternToRun = 0) {
-  activityLed(1);
-/*
-  if( !autonomous )
-    memcpy(my_data+1, const_cast<uint8_t*>(rf12_data+1), RF12_BUFFER_SIZE-1);
-*/
-  int same = (g_pattern == patternToRun);
-  if (!same) {
-      g_needToSend = 1;
-  }
-  g_pattern = patternToRun;
-
-  switch( g_pattern ) {
-  default:
-  case PATTERN_OFF:
-    off( 1 );  // all lights off including the lantern
-    break;
-  case PATTERN_TWINKLE:
-    randomTwinkle( ); // just blink lantern erratically, minimal radio comm
-    break;
-  case PATTERN_FIREFLY:
-    teamFirefly( ); // slowly beginning to blink together
-    break;
-  case PATTERN_CLOCKSYNC:
-    clockSync( );  // synchronizing firefly lanterns, the end-game
-    break;
-  }
-
-  activityLed(0);
-}
-
 /*
 // don't waste cycles with delay(); poll for new inputs
 int my_delay_with_break(unsigned long wait_time) {
@@ -571,24 +541,13 @@ void debugRecv() {
 
 // = = = = = = = = = = = = = = = = = = = = = = = = = = =
 // my_recvDone
-// @returns: g_PatternReceived = 1 if a pattern was received successfully
+// returns 1 if a pattern was received successfully
 int my_recvDone() {
-#ifdef DEBUG
-//        Serial.print("00 my_recvDone g_patternRx "); Serial.println(g_patternReceived);
-#endif
-  //if a pattern has not already been received then we should check
-  if ( !g_patternReceived ) {
-#ifdef DEBUG
-//        Serial.print("01 if not g_patternRx "); Serial.println(g_patternReceived);
-#endif
+    int patternReceived = 0;
     // (receive a network message if one exists; keep the RF12 library happy)
-    // rf12_recvDone() needs to be constantly called in order to recieve new transmissions
-    // it checks to see if a packet has been received, returns true if it has:
+    // rf12_recvDone() needs to be constantly called in order to recieve new transmissions.
+    // It checks to see if a packet has been received, returns true if it has
     if ( rf12_recvDone() ) {
-#ifdef DEBUG
-        Serial.print("02 if recvDone g_patternRx "); Serial.println(g_patternReceived);
-#endif
-        
 #ifdef DEBUG
         debugRecv();
 #endif        
@@ -596,7 +555,7 @@ int my_recvDone() {
         // or else rf12_crc, rf12_len, and rf12_data will be reset.
         if (rf12_crc == 0) {
 #ifdef DEBUG
-        Serial.print("03 if crc g_patternRx "); Serial.println(g_patternReceived);
+        Serial.print("01 goodcrc patternRx "); Serial.println(patternReceived);
 #endif
           // assign the pattern that we recieve, unless...
           // in radio mode, tell clock sync to piss off (ignore clocksync because she is crazy)
@@ -610,31 +569,26 @@ int my_recvDone() {
             rf12_sendStart(RF12_ACK_REPLY, 0, 0);
           }
         }
-        // if we got a bad crc, then no pattern received. (this is a noop)
-        g_patternReceived = !rf12_crc;
+        // if we got a bad crc, then no pattern received. (IOW this function is a noop)
+        patternReceived = !rf12_crc;
 #ifdef DEBUG
-        Serial.print("04 exit g_patternRx "); Serial.println(g_patternReceived);
-#endif
-        
+        Serial.print("02 exit patternRx "); Serial.println(patternReceived);
+#endif        
       }
-  }
-#ifdef DEBUG
-//        Serial.print("05 final g_patternRx "); Serial.println(g_patternReceived);
-#endif
-  return g_patternReceived;
+  return patternReceived;
 }
 
 // = = = = = = = = = = = = = = = = = = = = = = = = = = =
 // my_send
 
-int my_send() {
-/*    
-    // check the timer for sending a network message
-    if (g_sendTimer.poll(3000)) // 3 seconds
-        g_needToSend = 1;
-*/        
+int my_send() {    
     //if rf12_canSend returns 1, then you must subsequently call rf12_sendStart.
-    if (g_needToSend && rf12_canSend()) {
+    if (g_needToSend) {
+      if (rf12_canSend()) {
+#ifdef DEBUG
+        Serial.print("01 my_send() ");
+        Serial.println(g_needToSend);
+#endif        
         g_needToSend = 0;
         activityLed(1);
         //do yo thang:
@@ -659,17 +613,20 @@ int my_send() {
 
         activityLed(0);
     }
+  }
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-// top-level interrupt functions 
+// top-level functions 
 
+// = = = = = = = = = = = = = = = = = = = = = = = = = = =
 // handleInputs()
-// returns 1 if captured input should trigger a break in a loop
-//
+// returns 1 to trigger a break in the active pattern loop
+// sets g_needToSend = 1 if a pattern change is detected
 int handleInputs() {
-  int trigger = 0;
-
+    int trigger = 0;
+    int original_pattern = g_pattern;
+    
 #ifdef DEBUG
   if(Serial.available())
     handleSerialInput(Serial.read());
@@ -678,25 +635,36 @@ int handleInputs() {
 //  debounceInputs();
 
   if ( my_recvDone() && !rf12_crc ) {
-      // my_recvDone can alter g_pattern and g_patternReceived
-      // my_recvDone returns g_patternReceived
+      // my_recvDone can alter g_pattern if the crc is good
     trigger = 1;
   } 
+
+    if (! (g_pattern == original_pattern) ) {
+        g_needToSend = 1; //be sure to tell your friends
+#ifdef DEBUG
+        Serial.println("handleInputs: new pattern detected!");
+#endif      
+    }
 
   return trigger;
 }
 
+// = = = = = = = = = = = = = = = = = = = = = = = = = = =
+// my_interrupt()
 // A pattern should call this function (or some equivalent of sub-functions)
 // whenever reasonably possible to keep network comm and serial IO going. 
-void my_interrupt()
+// returns the output of handleInputs()
+int my_interrupt()
 {
-    handleInputs();  //check for serial input, call my_recvDone()
+    int inputReceived = handleInputs();  //check for serial input, call my_recvDone()
     my_send(); //send the football if g_needToSend is true
+
+    return inputReceived;
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 // Setup
-
+// = = = = = = = = = = = = = = = = = = = = = = = = = = =
 void setup() {
 #ifdef DEBUG
   pinMode(A1, OUTPUT);
@@ -713,7 +681,6 @@ void setup() {
   }
 
   g_pattern = PATTERN_TWINKLE;   // Wake up and twinkle
-  g_patternReceived = 0;
 
 #ifdef DEBUG
   Serial.begin(57600);
@@ -723,11 +690,34 @@ void setup() {
     randomSeed(analogRead(0));
 }
 
+// = = = = = = = = = = = = = = = = = = = = = = = = = = =
+// Pattern control switch!
+void runPattern(int patternToRun = 0) {
+  activityLed(1);
+
+  switch( g_pattern ) {
+      default:
+      case PATTERN_OFF:
+        off( 1 );  // all lights off, including/especially the lantern
+        break;
+      case PATTERN_TWINKLE:
+        randomTwinkle( ); // just blink lantern erratically, minimal radio comm
+        break;
+      case PATTERN_FIREFLY:
+        teamFirefly( ); // slowly beginning to blink together, timed tx/rx
+        break;
+      case PATTERN_CLOCKSYNC:
+        clockSync( );  // synchronizing firefly lanterns; the end-game
+        break;
+  }
+
+  activityLed(0);
+}
+
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 // Main loop
-
+// = = = = = = = = = = = = = = = = = = = = = = = = = = =
 void loop() {
     runPattern(g_pattern);  // switches control to the current pattern
-    my_interrupt();
-    g_patternReceived = 0; // if we got here, the pattern has returned control.
+//    my_interrupt(); //this is really just insurance; patterns should call their own interrupts
 }
