@@ -724,17 +724,12 @@ int my_recvDone() {
 // = = = = = = = = = = = = = = = = = = = = = = = = = = =
 // my_send
 
-int my_send() {    
-    //if rf12_canSend returns 1, then you must subsequently call rf12_sendStart.
+int my_send() {
     if (cmd) {
       if (rf12_canSend()) {
-        activityLed(1);
-#ifdef DEBUG
-        Serial.print("01 my_send() ");
-        Serial.println(g_needToSend);
-#endif        
-        g_needToSend = 0;
+        //if rf12_canSend returns 1, then you must subsequently call rf12_sendStart.
         //do yo thang:
+        activityLed(1);
 #ifdef DEBUG
         showString(PSTR(" -> "));
         Serial.print((word) sendLen);
