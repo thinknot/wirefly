@@ -249,6 +249,9 @@ static void handleSerialInput (char c) {
         g_patternReceived = 1;
         break;
     case 'y': //switch to twinkle
+        g_pattern = PATTERN_TWINKLE;
+        g_patternReceived = 1;
+        break;
     default:
       showHelp();
       break;
