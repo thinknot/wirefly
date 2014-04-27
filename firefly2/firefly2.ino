@@ -25,8 +25,8 @@
 
 #define COLLECT 0x20 // collect mode, i.e. pass incoming without sending acks
 
-MilliTimer sendTimer;
-byte needToSend;
+MilliTimer g_sendTimer;
+byte g_needToSend;
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 // RF12 configuration setup code
@@ -316,15 +316,17 @@ void randomTwinkle( ) {
                 lantern_on = 0;
             }
             else { //the light was/is off
-                wait_millis = random(300, 1800);
+                wait_millis = random(300, 1200);
                 blinkerLed(HIGH);
                 lantern_on = 1;
             }
             clock_elapsed = 0;
         }
-//        if ( handleInputs() ) {
-//            return;
-//        }
+        if ( handleInputs() ) {
+            //we got a trigger, probably a network msg
+            if (g_pattern != PATTERN_TWINKLE)
+                return;
+        }
     }
 }
 
@@ -537,74 +539,79 @@ void my_delay(unsigned long wait_time) {
     handleInputs();
 }
 
+//=======================
+// Receive
+//=======================
 int my_recvDone() {
-  // rf12_recvDone() needs to be constantly called in order to recieve new transmissions,
-  // but we only care if CRC is ok.
-  // If a new transmission comes in and CRC is ok, don't poll recv state again or else
-  // rf12_crc, rf12_len, and rf12_data will be reset.
-  // Once data has been processed (in loop()) you should reset the patternAvailable flag
 
   if ( !g_patternAvailable ) {
-
     // (receive a network message if one exists; keep the RF12 library happy)
-    // Check to see if a packet has been received, returns true if it has:
+    // rf12_recvDone() needs to be constantly called in order to recieve new transmissions
+    // it checks to see if a packet has been received, returns true if it has:
     if ( rf12_recvDone() ) {
-      byte n = rf12_len;
-      if (rf12_crc == 0) {
 #ifdef DEBUG
-        Serial.print("OK");
+        Serial.print("01 g_patternAvailable ");
+        Serial.println(g_patternAvailable);
 #endif
-      }
-      else {
-        if (quiet)
-          return 0;
+        byte n = rf12_len;
+        if (rf12_crc == 0) {
+  // If a new transmission comes in and CRC is ok, don't poll recv state again,
+  // or else rf12_crc, rf12_len, and rf12_data will be reset.
 #ifdef DEBUG
-        Serial.println("bad crc: ");
-        if (n > 20) // print at most 20 bytes if crc is wrong
-          n = 20;
+            Serial.print("OK");
 #endif
-      }
+          }
+          else {
+            if (quiet)
+              return 0;
 #ifdef DEBUG
-      if (config.group == 0) {
-        Serial.print("G ");
-        Serial.print((int) rf12_grp);
-      }
-      Serial.print(' ');
-      Serial.print((int) rf12_hdr);
-      for (byte i = 0; i < n; ++i) {
-        Serial.print(' ');
-        Serial.print((int) rf12_data[i]);
-      }
-      Serial.println();
+            Serial.println("bad crc: ");
+            if (n > 20) // print at most 20 bytes if crc is wrong
+              n = 20;
 #endif
-    }
+          }
+#ifdef DEBUG
+          if (config.group == 0) {
+            Serial.print("G ");
+            Serial.print((int) rf12_grp);
+          }
+          Serial.print(' ');
+          Serial.print((int) rf12_hdr);
+          for (byte i = 0; i < n; ++i) {
+            Serial.print(' ');
+            Serial.print((int) rf12_data[i]);
+          }
+          Serial.println();
+#endif
+        if (rf12_crc == 0) {
+          // in radio mode, tell clock sync to piss off (ignore clocksync because she is crazy)
+          // otherwise, assign the pattern that we recieve
+          g_pattern = ((rf12_len>0 && rf12_data[0]!=PATTERN_CLOCKSYNC) ? rf12_data[0] : g_pattern);
 
-    if (rf12_crc == 0) {
-      // in radio mode, tell clock sync to piss off
-      g_pattern = ((rf12_len>0&&rf12_data[0]!=PATTERN_CLOCKSYNC)?rf12_data[0]:g_pattern);
-
-      if (RF12_WANTS_ACK && (config.nodeId & COLLECT) == 0) {
+          if (RF12_WANTS_ACK && (config.nodeId & COLLECT) == 0) {
 #ifdef DEBUG
-        Serial.println(" -> ack");
+            Serial.println(" -> ack");
 #endif
-        rf12_sendStart(RF12_ACK_REPLY, 0, 0);
+            rf12_sendStart(RF12_ACK_REPLY, 0, 0);
+          }
+        }
+        g_patternAvailable = !rf12_crc;
       }
-    }
-
-    g_patternAvailable = !rf12_crc;
   }
-
   return( g_patternAvailable );
 }
 
+//=======================
+// Send
+//=======================
 int my_send() {
     // check the timer for sending a network message
-    if (sendTimer.poll(30000)) // 30 seconds
-        needToSend = 1;
+    if (g_sendTimer.poll(3000)) // 3 seconds
+        g_needToSend = 1;
         
     //if rf12_canSend returns 1, then you must subsequently call rf12_sendStart.
-    if (needToSend && rf12_canSend()) {
-        needToSend = 0;
+    if (g_needToSend && rf12_canSend()) {
+        g_needToSend = 0;
         activityLed(1);
         //do yo thang:
 #ifdef DEBUG
@@ -630,13 +637,14 @@ int my_send() {
     }
 }
 
+// handleInputs()
 // returns 1 if captured input should trigger a break in a loop
+//
 int handleInputs() {
 
   int trigger = 0;
 
 #ifdef DEBUG
-  digitalWrite(A1, LOW);
   if(Serial.available())
     handleSerialInput(Serial.read());
 #endif
@@ -648,11 +656,7 @@ int handleInputs() {
     trigger = 1;
   } 
 
-#ifdef DEBUG 
-  digitalWrite(A1, LOW);
-#endif
-
-  return(trigger);
+  return trigger;
 }
 
 void setup() {
@@ -684,12 +688,16 @@ void setup() {
 }
 
 void loop() {
-  handleInputs();  
-    //checks for serial input in debug mode
-    //calls my_recvDone()
-    //returns 1 if input was captured
-  my_send();
-  runPattern(g_pattern); 
-    //switches control to the current pattern
-  g_patternAvailable = 0;
+#ifdef DEBUG
+    Serial.print("00 g_patternAvailable ");
+    Serial.println(g_patternAvailable);
+#endif
+    handleInputs();  //check for serial input, call my_recvDone()
+    my_send();
+    runPattern(g_pattern);  //switches control to the current pattern
+#ifdef DEBUG
+    Serial.print("99 g_patternAvailable ");
+    Serial.println(g_patternAvailable);
+#endif
+    g_patternAvailable = 0;
 }
