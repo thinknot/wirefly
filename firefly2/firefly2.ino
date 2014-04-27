@@ -10,8 +10,6 @@
 // comment out below before compiling production codez!
 #define DEBUG 1
 
-//#define UPSIDE_DOWN_LEDS 1
-
 // Configure some values in EEPROM for easy config of the RF12 later on.
 // 2009-05-06 <jcw@equi4.com> http://opensource.org/licenses/mit-license.php
 // $Id: RF12demo.pde 7754 2011-08-22 11:38:59Z jcw $
@@ -337,6 +335,9 @@ void randomTwinkle( ) {
             clock_elapsed = 0;
         }
         if ( handleInputs() ) {
+#ifdef DEBUG
+                Serial.print("Twinkle: input received!");
+#endif
             //we got a trigger, probably a network msg
             if (g_pattern != PATTERN_TWINKLE)
                 return;
@@ -572,18 +573,31 @@ void debugRecv() {
 // my_recvDone
 // @returns: g_PatternReceived = 1 if a pattern was received successfully
 int my_recvDone() {
+#ifdef DEBUG
+//        Serial.print("00 my_recvDone g_patternRx "); Serial.println(g_patternReceived);
+#endif
   //if a pattern has not already been received then we should check
   if ( !g_patternReceived ) {
+#ifdef DEBUG
+//        Serial.print("01 if not g_patternRx "); Serial.println(g_patternReceived);
+#endif
     // (receive a network message if one exists; keep the RF12 library happy)
     // rf12_recvDone() needs to be constantly called in order to recieve new transmissions
     // it checks to see if a packet has been received, returns true if it has:
     if ( rf12_recvDone() ) {
+#ifdef DEBUG
+        Serial.print("02 if recvDone g_patternRx "); Serial.println(g_patternReceived);
+#endif
+        
 #ifdef DEBUG
         debugRecv();
 #endif        
         // If a new transmission comes in and CRC is ok, don't poll recv state again,
         // or else rf12_crc, rf12_len, and rf12_data will be reset.
         if (rf12_crc == 0) {
+#ifdef DEBUG
+        Serial.print("03 if crc g_patternRx "); Serial.println(g_patternReceived);
+#endif
           // assign the pattern that we recieve, unless...
           // in radio mode, tell clock sync to piss off (ignore clocksync because she is crazy)
           g_pattern = ((rf12_len>0 && rf12_data[0]!=PATTERN_CLOCKSYNC) ? rf12_data[0] : g_pattern);
@@ -598,8 +612,15 @@ int my_recvDone() {
         }
         // if we got a bad crc, then no pattern received. (this is a noop)
         g_patternReceived = !rf12_crc;
+#ifdef DEBUG
+        Serial.print("04 exit g_patternRx "); Serial.println(g_patternReceived);
+#endif
+        
       }
   }
+#ifdef DEBUG
+//        Serial.print("05 final g_patternRx "); Serial.println(g_patternReceived);
+#endif
   return g_patternReceived;
 }
 
@@ -657,7 +678,8 @@ int handleInputs() {
 //  debounceInputs();
 
   if ( my_recvDone() && !rf12_crc ) {
-      //my_recvDone alters g_pattern, alters/returns g_patternReceived
+      // my_recvDone can alter g_pattern and g_patternReceived
+      // my_recvDone returns g_patternReceived
     trigger = 1;
   } 
 
@@ -691,7 +713,7 @@ void setup() {
   }
 
   g_pattern = PATTERN_TWINKLE;   // Wake up and twinkle
-  g_patternReceived = 1;
+  g_patternReceived = 0;
 
 #ifdef DEBUG
   Serial.begin(57600);
@@ -706,6 +728,6 @@ void setup() {
 
 void loop() {
     runPattern(g_pattern);  // switches control to the current pattern
-    g_patternReceived = 0; // if we got here, the pattern has returned control.
     my_interrupt();
+    g_patternReceived = 0; // if we got here, the pattern has returned control.
 }
