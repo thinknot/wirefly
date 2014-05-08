@@ -1,5 +1,3 @@
-#include <TimerOne.h>
-
 #include <JeeLib.h>
 #include <util/crc16.h>
 #include <avr/eeprom.h>
@@ -7,7 +5,7 @@
 #include <util/parity.h>
 
 #define MAJOR_VERSION RF12_EEPROM_VERSION // bump when EEPROM layout changes
-#define VERSION "[Wirefly 04-2014]"
+#define VERSION "[Wirefly 05-2014]"
 
 /// Save a few bytes of flash by declaring const if used more than once.
 const char INVALID1[] PROGMEM = "\rInvalid\n";
@@ -108,7 +106,7 @@ static void showByte (byte value) {
         Serial.print((word) value);
 }
 
-static word calcCrc (const void* ptr, byte len) {
+static word crc16Calc (const void* ptr, byte len) {
     word crc = ~0;
     for (byte i = 0; i < len; ++i)
         crc = _crc16_update(crc, ((const byte*) ptr)[i]);
@@ -201,13 +199,10 @@ static void showHelp () {
 #define PATTERN_CLOCKSYNC	10
 #define PATTERN_CLOCKSYNC_PING	11
 
-#define HANDLEINPUTS_TIME  22 //microseconds
-
 static uint8_t g_pattern = 0;
 static int g_stopChooseAnother = 0;
 static unsigned long g_wait = 50;
 
-#define PIX_COUNT		30
 #define RF12_BUFFER_SIZE	66
 
 static uint8_t my_data[RF12_BUFFER_SIZE];
@@ -579,8 +574,8 @@ void clockSync( byte opts = 0){
       }
     }
 
-    if( handleInputs() && (g_pattern != PATTERN_CLOCKSYNC)) {
-      return;
+    if( handleInputs() && (g_pattern <= PATTERN_CLOCKSYNC)) {
+		return;
     }
 
   }
@@ -697,31 +692,32 @@ int my_recvDone() {
 #ifdef DEBUG
         debugRecv();
 #endif        
-        // If a new transmission comes in and CRC is ok, don't poll recv state again,
-        // or else rf12_crc, rf12_len, and rf12_data will be reset.
+		// if we got a bad crc, then no message received. (IOW this function becomes a noop)
+		msgReceived = !rf12_crc;
+		// If a new transmission comes in and CRC is ok, don't poll recv state again,
+        // otherwise rf12_crc, rf12_len, and rf12_data will be reset.
         if (rf12_crc == 0) {
             activityLed(1);
+			if (RF12_WANTS_ACK && (config.collect_mode) == 0) {
+				showString(PSTR(" -> ack\n"));
+				rf12_sendStart(RF12_ACK_REPLY, 0, 0);
+			}
 #ifdef DEBUG
-        Serial.print("rf12_len "); Serial.println(rf12_len);
-        Serial.print("rf12_data[0] "); Serial.println(rf12_data[0]);
+			Serial.print("rf12_len "); Serial.println(rf12_len);
+			Serial.print("rf12_data[0] "); Serial.println(rf12_data[0]);
 #endif
             // assign the pattern that we recieve, unless...
-            g_pattern = ((rf12_len > 0) ? rf12_data[0] : g_pattern);
-            // if we get a crazy clocksync ping, just ignore it
-            if (g_pattern == PATTERN_CLOCKSYNC_PING)
-                g_pattern = PATTERN_CLOCKSYNC;
-#ifdef DEBUG
-        Serial.print("pattern "); Serial.println(g_pattern);
-#endif
+            int new_pattern = ((rf12_len > 0) ? rf12_data[0] : g_pattern);
 
-            if (RF12_WANTS_ACK && (config.collect_mode) == 0) {
-                showString(PSTR(" -> ack\n"));
-                rf12_sendStart(RF12_ACK_REPLY, 0, 0);
-            }
+			// ...if we get a crazy clocksync ping msg, then just ignore it
+			if (msgReceived = (new_pattern != PATTERN_CLOCKSYNC_PING)) {
+				g_pattern = new_pattern;
+			}
+#ifdef DEBUG
+	        Serial.print("pattern "); Serial.println(g_pattern);
+#endif
             activityLed(0);
         }
-        // if we got a bad crc, then no pattern received. (IOW this function becomes a noop)
-        msgReceived = !rf12_crc;
 #ifdef DEBUG
         Serial.print("msgRx "); Serial.println(msgReceived);
 #endif
