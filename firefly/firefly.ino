@@ -1,3 +1,10 @@
+/// Configure some values in EEPROM for easy config of the RF12 later on.
+// 2009-05-06 <jc@wippler.nl> http://opensource.org/licenses/mit-license.php
+
+// this version adds flash memory support, 2009-11-19
+// Adding frequency features, author JohnO, 2013-09-05
+// Major EEPROM format change, refactoring, and cleanup for v12, 2014-02-13
+
 #include <JeeLib.h>
 #include <util/crc16.h>
 #include <avr/eeprom.h>
@@ -5,40 +12,62 @@
 #include <util/parity.h>
 
 #define MAJOR_VERSION RF12_EEPROM_VERSION // bump when EEPROM layout changes
-#define VERSION "[Wirefly 05-2014]"
-
+#define MINOR_VERSION 2                   // bump on other non-trivial changes
+#define VERSION "[Wirefly 10-2014]"
+#define TINY        0
+#define SERIAL_BAUD 57600   // adjust as needed
+#define DATAFLASH   0       // set to 0 for non-JeeLinks, else 4/8/16 (Mbit)
+//#define LED_PIN     9       // activity LED, comment out to disable
 /// Save a few bytes of flash by declaring const if used more than once.
 const char INVALID1[] PROGMEM = "\rInvalid\n";
 const char INITFAIL[] PROGMEM = "config save failed\n";
 
 // comment out below before compiling production codez!
-#define DEBUG 1
+//#define DEBUG 1
 
-//select platform and features: 
-//#define LEDNODE
-//#define LUXMETER
-
-#define REDPIN 5
-#define GREENPIN 6
-#ifdef LEDNODE
-    #define BLUEPIN 9
-#else
-    #define BLUEPIN 3
-#endif
-
-#define FADESPEED 25     // make this higher to slow down
-
-// Configure some values in EEPROM for easy config of the RF12 later on.
-// 2009-05-06 <jcw@equi4.com> http://opensource.org/licenses/mit-license.php
-// $Id: RF12demo.pde 7754 2011-08-22 11:38:59Z jcw $
-
-#define SERIAL_BAUD 57600   // adjust as needed
-#define DATAFLASH   0       // set to 0 for non-JeeLinks, else 4/8/16 (Mbit)
-#define LED_PIN     9       // activity LED, comment out to disable
+#define RF12_BUFFER_SIZE	66
+static uint8_t my_data[RF12_BUFFER_SIZE];
 
 #define COLLECT 0x20 // collect mode, i.e. pass incoming without sending acks
 
-Port port_three (3);
+// Select platform features:
+#define LUXMETER
+//#define TIMER
+//#define LED_STRIP
+//#define LED_NEOPIX
+#define LED_SUPERFLUX
+
+// boilerplate for low-power waiting
+ISR(WDT_vect) { Sleepy::watchdogEvent(); }
+
+#define REDPIN 5        // DIO2
+#define GREENPIN 6      // DIO3
+#define BLUEPIN 3   // IRQ2
+//#define BLUEPIN 9   // SEL1 LedNode
+    
+PortI2C myBus (3);
+LuxPlug sensor (myBus, 0x39);
+byte highGain;
+
+// For PATTERN_FADER and rgbSet(): 
+// Used to adjust the limits for the LED, especially if it has a lower ON threshold
+#define  MIN_RGB_VALUE  10   // no smaller than 10. TODO add gamma correction 
+#define  MAX_RGB_VALUE  255  // no bigger than 255. (dark)
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+// = = = = = = = = = = = = = = = = = = = = = = = = = = =
+// Pattern control, pattern variables
+#define PATTERN_OFF		0
+#define PATTERN_TWINKLE		1
+#define PATTERN_FIREFLY         2
+#define PATTERN_FADER           3
+#define PATTERN_PULSER          4
+#define PATTERN_CLOCKSYNC	10
+#define PATTERN_CLOCKSYNC_PING	11
+#define PATTERN_SLEEPY          30
+#define PATTERN_LUXMETER        90
+
+#define PULSE_COLORSPEED 5     // For PATTERN_PULSE, make this higher to slow down
 
 static unsigned long now () {
     // FIXME 49-day overflow
@@ -52,11 +81,27 @@ static void activityLed (byte on) {
 #endif
 }
 
-static void printOneChar (char c) {
-    Serial.print(c);
+static void radioSleep (word ms) {
+#if DEBUG_LED
+  bitSet(PORTB, 1); // LED off
+#endif
+  rf12_sleep(RF12_SLEEP);
+  Sleepy::loseSomeTime(ms);
+  rf12_sleep(RF12_WAKEUP);
+#if DEBUG_LED
+  bitClear(PORTB, 1); // LED on
+#endif
+}
+
+static void rgbSet(byte r, byte g, byte b)
+{
+	analogWrite(REDPIN, r);
+	analogWrite(GREENPIN, g);
+	analogWrite(BLUEPIN, b);
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+// = = = = = = = = = = = = = = = = = = = = = = = = = = =
 // RF12 configuration setup code
 
 /// @details
@@ -83,10 +128,10 @@ static RF12Config config;
 // 0   no command
 // 'a' send request ack
 // 'c' send
-static char cmd;
-static word value;
-static byte stack[RF12_MAXDATA+4], top, sendLen, dest;
-static byte testCounter; //number of test packets sent
+static char msg_cmd;
+static word msg_value;
+static byte msg_stack[RF12_MAXDATA+4], msg_top, msg_sendLen, msg_dest;
+static byte msg_testCounter; //number of test packets sent
 
 static void addCh (char* msg, char c) {
   byte n = strlen(msg);
@@ -147,6 +192,10 @@ static byte bandToFreq (byte band) {
      return band == 4 ? RF12_433MHZ : band == 8 ? RF12_868MHZ : band == 9 ? RF12_915MHZ : 0;
 }
 
+static void printOneChar (char c) {
+    Serial.print(c);
+}
+
 static void displayASCII (const byte* data, byte count) {
     for (byte i = 0; i < count; ++i) {
         printOneChar(' ');
@@ -158,10 +207,29 @@ static void displayASCII (const byte* data, byte count) {
 
 static void displayVersion () {
     showString(PSTR(VERSION));
+    showString(PSTR("\nBlue pin: "));
+    Serial.println(BLUEPIN);
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+// DataFlash code
 
+#if DATAFLASH
+#include "dataflash.h"
+#else // DATAFLASH
+
+#define df_present() 0
+#define df_initialize()
+#define df_dump()
+#define df_replay(x,y)
+#define df_erase(x)
+#define df_wipe()
+#define df_append(x,y)
+
+#endif
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+// FIXME update this help menu based on handleSerialInput()
 const char helpText1[] PROGMEM =
     "\n"
     "Available commands:\n"
@@ -182,6 +250,14 @@ const char helpText1[] PROGMEM =
     "  <addr>,<dev>,<on> k              - KAKU command (433 MHz)\n"
 ;
 
+const char helpText2[] PROGMEM =
+    "Flash storage (JeeLink only):\n"
+    "    d                                  - dump all log markers\n"
+    "    <sh>,<sl>,<t3>,<t2>,<t1>,<t0> r    - replay from specified marker\n"
+    "    123,<bhi>,<blo> e                  - erase 4K block\n"
+    "    12,34 w                            - wipe entire flash memory\n"
+;
+
 static void showString (PGM_P s) {
     for (;;) {
         char c = pgm_read_byte(s++);
@@ -195,77 +271,68 @@ static void showString (PGM_P s) {
 
 static void showHelp () {
     showString(helpText1);
+    if (df_present())
+        showString(helpText2);
     showString(PSTR("Current configuration:\n"));
     rf12_configDump();
 }
 
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-// Pattern control variables
-#define PATTERN_OFF		0
-#define PATTERN_TWINKLE		1
-#define PATTERN_FIREFLY         2
-#define PATTERN_FADER           3
-#define PATTERN_CLOCKSYNC	10
-#define PATTERN_CLOCKSYNC_PING	11
-
 static uint8_t g_pattern = 0;
-static int g_stopChooseAnother = 0;
-static unsigned long g_wait = 50;
-
-#define RF12_BUFFER_SIZE	66
-
-static uint8_t my_data[RF12_BUFFER_SIZE];
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+// = = = = = = = = = = = = = = = = = = = = = = = = = = =
 // serial I/O
 
 //this function is intended only to run in debug mode!!
 static void handleSerialInput (char c) {
     if ('0' <= c && c <= '9') {
-        value = 10 * value + c - '0';
+        msg_value = 10 * msg_value + c - '0';
         return;
     }
 
     if (c == ',') {
-        if (top < sizeof stack)
-            stack[top++] = value; // truncated to 8 bits
-        value = 0;
+        if (msg_top < sizeof msg_stack)
+            msg_stack[msg_top++] = msg_value; // truncated to 8 bits
+        msg_value = 0;
         return;
     }
 
     if ('a' <= c && c <= 'z') {
         showString(PSTR("> "));
-        for (byte i = 0; i < top; ++i) {
-            Serial.print((word) stack[i]);
+        for (byte i = 0; i < msg_top; ++i) {
+            Serial.print((word) msg_stack[i]);
             printOneChar(',');
         }
-        Serial.print(value);
+        Serial.print(msg_value);
         Serial.println(c);
     }
     
     // keeping this out of the switch reduces code size (smaller branch table)
     if (c == '>') {
-        // special case, send to specific band and group, and don't echo cmd
-        // input: band,group,node,header,data...
-        stack[top++] = value;
-        // TODO: frequency offset is taken from global config, is that ok?
-        rf12_initialize(stack[2], bandToFreq(stack[0]), stack[1],
-                            config.frequency_offset);
-        rf12_sendNow(stack[3], stack + 4, top - 4);
-        rf12_sendWait(2);
-        rf12_configSilent();
-    } else if (c > ' ') {
-        switch (c) {
+      // special case, send to specific band and group, and don't echo cmd
+      // input: band,group,node,header,data...
+      msg_stack[msg_top++] = msg_value;
+      // TODO: frequency offset is taken from global config, is that ok?
+      rf12_initialize(msg_stack[2], bandToFreq(msg_stack[0]), msg_stack[1],
+                          config.frequency_offset);
+      rf12_sendNow(msg_stack[3], msg_stack + 4, msg_top - 4);
+      rf12_sendWait(2);
+      rf12_configSilent();
+    } 
+    else if (c > ' ') {
+      // base case, handle alpha commands
+      // (only set up any messages; use my_interrupt() to send)
+      switch (c) {
 
         case 'i': // set node id
-            config.nodeId = (config.nodeId & 0xE0) + (value & 0x1F);
+            config.nodeId = (config.nodeId & 0xE0) + (msg_value & 0x1F);
             saveConfig();
             break;
 
-        case 'b': // set band: 4 = 433, 8 = 868, 9 = 915
-            value = bandToFreq(value);
-            if (value) {
-                config.nodeId = (value << 6) + (config.nodeId & 0x3F);
+        case 'b': // set frequency band in MHz: 4 = 433, 8 = 868, 9 = 915
+            msg_value = bandToFreq(msg_value);
+            if (msg_value) {
+                config.nodeId = (msg_value << 6) + (config.nodeId & 0x3F);
                 config.frequency_offset = 1600;
                 saveConfig();
             }
@@ -273,45 +340,45 @@ static void handleSerialInput (char c) {
         case 'o': { // Increment frequency within band
 // Stay within your country's ISM spectrum management guidelines, i.e.
 // allowable frequencies and their use when selecting operating frequencies.
-            if ((value > 95) && (value < 3904)) { // supported by RFM12B
-                config.frequency_offset = value;
+            if ((msg_value > 95) && (msg_value < 3904)) { // supported by RFM12B
+                config.frequency_offset = msg_value;
                 saveConfig();
             }
             break;
         }
             
         case 'g': // set network group
-            config.group = value;
+            config.group = msg_value;
             saveConfig();
             break;
 
         case 'c': // set collect mode (off = 0, on = 1)
-            config.collect_mode = value;
+            config.collect_mode = msg_value;
             saveConfig();
             break;
 
         case 't': // broadcast a maximum size test packet, request an ack
-            cmd = 'a';
-            sendLen = RF12_MAXDATA;
-            dest = 0;
+            msg_cmd = 'a';
+            msg_sendLen = RF12_MAXDATA;
+            msg_dest = 0;
             for (byte i = 0; i < RF12_MAXDATA; ++i)
-                stack[i] = i + testCounter;
+                msg_stack[i] = i + msg_testCounter;
             showString(PSTR("test "));
-            showByte(testCounter); // first byte in test buffer
-            ++testCounter;
+            showByte(msg_testCounter); // first byte in test buffer
+            ++msg_testCounter;
             break;
 
         case 'a': // send packet to node ID N, request an ack
         case 's': // send packet to node ID N, no ack
-            cmd = c;
-            sendLen = top;
-            dest = value;
+            msg_cmd = c;
+            msg_sendLen = msg_top;
+            msg_dest = msg_value;
             break;
 /*
         case 'f': // send FS20 command: <hchi>,<hclo>,<addr>,<cmd>f
             rf12_initialize(0, RF12_868MHZ, 0);
             activityLed(1);
-            fs20cmd(256 * stack[0] + stack[1], stack[2], value);
+            fs20cmd(256 * msg_stack[0] + msg_stack[1], msg_stack[2], msg_value);
             activityLed(0);
             rf12_configSilent();
             break;
@@ -319,13 +386,13 @@ static void handleSerialInput (char c) {
         case 'k': // send KAKU command: <addr>,<dev>,<on>k
             rf12_initialize(0, RF12_433MHZ, 0);
             activityLed(1);
-            kakuSend(stack[0], stack[1], value);
+            kakuSend(stack[0], msg_stack[1], msg_value);
             activityLed(0);
             rf12_configSilent();
             break;
 */
         case 'z': // put the ATmega in ultra-low power mode (reset needed)
-            if (value == 123) {
+            if (msg_value == 123) {
                 showString(PSTR(" Zzz...\n"));
                 Serial.flush();
                 rf12_sleep(RF12_SLEEP);
@@ -335,12 +402,12 @@ static void handleSerialInput (char c) {
             break;
 
         case 'q': // turn quiet mode on or off (don't report bad packets)
-            config.quiet_mode = value;
+            config.quiet_mode = msg_value;
             saveConfig();
             break;
 
         case 'x': // set reporting mode to decimal (0), hex (1), hex+ascii (2)
-            config.hex_output = value;
+            config.hex_output = msg_value;
             saveConfig();
             break;
 
@@ -349,7 +416,7 @@ static void handleSerialInput (char c) {
             rf12_configDump();
 
         case 'l': // turn activity LED on or off
-            activityLed(value);
+            activityLed(msg_value);
             break;
 /*
         case 'd': // dump all log markers
@@ -359,16 +426,16 @@ static void handleSerialInput (char c) {
 
         case 'r': // replay from specified seqnum/time marker
             if (df_present()) {
-                word seqnum = (stack[0] << 8) | stack[1];
-                long asof = (stack[2] << 8) | stack[3];
-                asof = (asof << 16) | ((stack[4] << 8) | value);
+                word seqnum = (msg_stack[0] << 8) | msg_stack[1];
+                long asof = (msg_stack[2] << 8) | msg_stack[3];
+                asof = (asof << 16) | ((msg_stack[4] << 8) | msg_value);
                 df_replay(seqnum, asof);
             }
             break;
 
         case 'e': // erase specified 4Kb block
-            if (df_present() && stack[0] == 123) {
-                word block = (stack[1] << 8) | value;
+            if (df_present() && msg_stack[0] == 123) {
+                word block = (msg_stack[1] << 8) | msg_value;
                 df_erase(block);
             }
             break;
@@ -379,14 +446,16 @@ static void handleSerialInput (char c) {
                 showString(PSTR("erased\n"));
             }
             break;
-*/            
-        case 'p': // select a new pattern, side effect: broadcast a pattern command
-            cmd = c;
-            stack[0] = value;
-            sendLen = 1;
-            dest = 0;
-            
-            g_pattern = value; //sorta redundant
+*/
+        case 'p': // select a new pattern 
+                  // (side effect: broadcast a pattern command to the network)
+            //immediately change pattern, rather than wait on a network msg
+            g_pattern = msg_value; 
+            //broadcast the new pattern
+            msg_cmd = c;
+            msg_stack[0] = msg_value;
+            msg_sendLen = 1;
+            msg_dest = 0;
             break;
             
         default:
@@ -394,7 +463,7 @@ static void handleSerialInput (char c) {
         }
     }
 
-    value = top = 0;
+    msg_value = msg_top = 0;
 }
 //    memset(stack, 0, sizeof stack);
 /*
@@ -407,22 +476,33 @@ static void handleSerialInput (char c) {
     */
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+// = = = = = = = = = = = = = = = = = = = = = = = = = = =
 // PATTERN functions begin here
 
-//The RGB colour space can be visualised as a cube whose (x, y, z) coordinates range from (0, 0, 0) or black, to (255, 255, 255) or white. 
-//More generally the cube is defined in the 3D space (0,0,0) to (1,1,1), scaled by 255. 
-//The vertices of this cube define the boundaries of the colour space, and moving along the 3D coordinates from one point to the next will naturally provide smooth colour transitions.
-
-void rgbSet(byte r, byte g, byte b)
+// = = = = = = = = = = = = = = = = = = = = = = = = = = =
+// Utility functions for patterns
+boolean pattern_interrupt(int current_pattern)
 {
-	analogWrite(REDPIN, r);
-	analogWrite(GREENPIN, g);
-	analogWrite(BLUEPIN, b);
+  my_interrupt();
+#ifdef DEBUG
+  if (g_pattern != current_pattern)
+  {
+      Serial.print("old pattern: ");
+      Serial.print(current_pattern);
+      Serial.print("   new pattern: ");
+      Serial.println(g_pattern);
+  }
+#endif
+  //we respond to a new pattern command
+  return (current_pattern != g_pattern);
 }
 
 // = = = = = = = = = = = = = = = = = = = = = = = = = = =
 // PATTERN_OFF: No color value, clear LEDs
 void pattern_off(byte opts = 0) {
+#ifdef DEBUG
+    Serial.println("Pattern Off");
+#endif                
 /*
   int startIndex = (IGNORE_FRONT(opts)?PIXEL_FRONT_LAST+1:0);
   int endIndex = (IGNORE_BACK(opts)?PIXEL_FRONT_LAST+1:strip.numPixels());
@@ -432,17 +512,44 @@ void pattern_off(byte opts = 0) {
   }
   strip.show();
 */
-	rgbSet(0,0,0);
+  rgbSet(MAX_RGB_VALUE, MAX_RGB_VALUE, MAX_RGB_VALUE);
   
-  delay(g_wait);  //TODO: need to go into low power mode here instead of delay
+  my_delay(50);  //TODO: need to go into low power mode here instead of delay
 //  debounceInputs();
+}
+
+// = = = = = = = = = = = = = = = = = = = = = = = = = = =
+// PATTERN_LUXMETER: low-power periodic monitoring
+void pattern_luxMeter() {
+#ifdef DEBUG
+    Serial.println("Begin pattern: luxMeter. waiting for sunset");
+#endif
+  while (true) {
+    sensor.begin();
+    sensor.setGain(highGain);
+    delay(1000); // Wait for proper powerup.
+    
+    const word* photoDiodes = sensor.getData();
+    Serial.print("LUX ");
+    Serial.print(photoDiodes[0]);
+    Serial.print(' ');
+    Serial.print(photoDiodes[1]);
+    Serial.print(' ');
+    Serial.print(sensor.calcLux());
+    Serial.print(' ');
+    Serial.println(highGain);
+    sensor.poweroff(); // Power off when we've got the data.
+    
+    highGain = ! highGain;
+    delay(6000);
+  }
 }
 
 // = = = = = = = = = = = = = = = = = = = = = = = = = = =
 // PATTERN_TWINKLE:
 void pattern_randomTwinkle() {
 #ifdef DEBUG
-    Serial.println("Begin randomTwinkle");
+    Serial.println("Begin pattern: randomTwinkle");
 #endif                
     int lantern_on = 0; // LED 1 = enabled, 0 = disabled 
     int wait_millis = 0; // time to stay either on or off
@@ -451,9 +558,10 @@ void pattern_randomTwinkle() {
     unsigned long clock_current = 0; //this variable will be updated each iteration of loop
     unsigned long clock_recent = 0; //no time has passed yet
     
-    while (true) {
+    while (true) {        
         clock_recent = clock_current; //save clock_current from the previous loop() to clock_recent
         clock_current = millis(); //update to "now"
+        
         //this is roll-over proof, if clock_current is small, and clock_recent large, 
         //the result rolls over to a small positive value:
         clock_elapsed = clock_elapsed + (clock_current - clock_recent);    
@@ -461,39 +569,47 @@ void pattern_randomTwinkle() {
 //        debounceInputs();
         
         if (clock_elapsed >= wait_millis) { //time to switch
-            if (lantern_on == 1) { //the light was previously turned on
-                wait_millis = random(1500, 3999);
-				rgbSet(254, 254, 254);
+            if (lantern_on == 1) { // previously on
+                wait_millis = random(1500, 6999); // time to stay off
+                rgbSet(MAX_RGB_VALUE, MAX_RGB_VALUE, MAX_RGB_VALUE);
                 lantern_on = 0;
             }
-            else { //the light was/is off
-                wait_millis = random(300, 1200);
-				rgbSet(0,0,0);
+            else { //the light was previously turned off
+                wait_millis = random(500, 900); // time to stay on
+                rgbSet(23, 23, 23);
                 lantern_on = 1;
             }
-            clock_elapsed = 0;
+            clock_elapsed = 0; //reset
         }
-        if ( my_interrupt() ) {
-#ifdef DEBUG
-            Serial.println("Twinkle: input received!");
-#endif
-            //we got a trigger, probably a network msg
-            if (g_pattern != PATTERN_TWINKLE) {
-#ifdef DEBUG
-                Serial.print("old pattern: ");
-                Serial.print(PATTERN_TWINKLE);
-                Serial.print("   new pattern: ");
-                Serial.println(g_pattern);
-#endif
-                return;
-            }
-        }
+        //check with the outside world:
+        if (pattern_interrupt(PATTERN_TWINKLE)) return;
     }
+}
+
+// PATTERN_SLEEPY
+void pattern_sleepyTwinkle() {
+  int wait_millis = 0; // time to stay either on or off
+
+  while (true) {
+      if (pattern_interrupt(PATTERN_SLEEPY)) return;
+      
+      wait_millis = random(1500, 6999); // time to stay off
+      rgbSet(MAX_RGB_VALUE, MAX_RGB_VALUE, MAX_RGB_VALUE);
+      radioSleep(wait_millis);
+
+      wait_millis = random(500, 900); // time to stay on
+      rgbSet(23, 23, 23);
+      radioSleep(wait_millis);
+  }
 }
 
 // = = = = = = = = = = = = = = = = = = = = = = = = = = =
 // PATTERN_FIREFLY:
 void pattern_teamFirefly() {
+#ifdef DEBUG
+    Serial.println("Begin pattern: teamFirefly");
+#endif                
+
 /*    
 MilliTimer g_sendTimer;
 byte g_needToSend;
@@ -502,6 +618,8 @@ byte g_needToSend;
         g_needToSend = 1;
 */        
 
+        //check with the outside world:
+        if (pattern_interrupt(PATTERN_FIREFLY)) return;
 }
 
 // = = = = = = = = = = = = = = = = = = = = = = = = = = =
@@ -518,14 +636,9 @@ byte g_needToSend;
  path coordinates as the LED transition effect. 
 */
 
-// Constants for readability are better than magic numbers
-// Used to adjust the limits for the LED, especially if it has a lower ON threshold
-#define  MIN_RGB_VALUE  10   // no smaller than 0. 
-#define  MAX_RGB_VALUE  255  // no bigger than 255.
-
 // Slowing things down we need ...
-#define  TRANSITION_DELAY  70   // in milliseconds, between individual light changes
-#define  WAIT_DELAY        500  // in milliseconds, at the end of each traverse
+#define  FADE_TRANSITION_DELAY  70   // in milliseconds, between individual light changes
+#define  FADE_WAIT_DELAY        500  // in milliseconds, at the end of each traverse
 //
 // Total traversal time is ((MAX_RGB_VALUE - MIN_RGB_VALUE) * TRANSITION_DELAY) + WAIT_DELAY
 // eg, ((255-0)*70)+500 = 18350ms = 18.35s
@@ -538,6 +651,11 @@ typedef struct
 
 static coord  v; // the current rgb coordinates (colour) being displayed
 
+//The RGB colour space can be visualised as a cube whose (x, y, z) coordinates range from (0, 0, 0) 
+//  or white, to (255, 255, 255) or black. 
+//More generally the cube is defined in the 3D space (0,0,0) to (1,1,1), scaled by 255. 
+//The vertices of this cube define the boundaries of the colour space, and moving along the 3D 
+//  coordinates from one point to the next will naturally provide smooth colour transitions.
 /*
  Vertices of a cube
       
@@ -593,17 +711,22 @@ void traverse(int dx, int dy, int dz)
     analogWrite(GREENPIN, v.y);
     analogWrite(BLUEPIN, v.z);
     
-    my_delay(TRANSITION_DELAY);  // wait for the transition delay
+    delay(FADE_TRANSITION_DELAY);
+    // wait for the transition delay
   }
 
-  my_delay(WAIT_DELAY);          // give it an extra rest at the end of the traverse
+  delay(FADE_WAIT_DELAY);
+  // give it an extra rest at the end of the traverse
 }
 
 void pattern_rgbFader()
 {
+#ifdef DEBUG
+    Serial.println("Begin pattern: rgbPulse");
+#endif                
 	while (true) 
 	{
-		int    v1, v2 = 0;    // the new vertex and the previous one
+		int v1, v2 = 0;    // the new vertex and the previous one
 
 		// initialise the place we start from as the first vertex in the array
 		v.x = (vertex[v2].x ? MAX_RGB_VALUE : MIN_RGB_VALUE);
@@ -624,61 +747,57 @@ void pattern_rgbFader()
 				vertex[v2].y - vertex[v1].y,
 				vertex[v2].z - vertex[v1].z);
 
-			if (my_interrupt()) {
-#ifdef DEBUG
-				Serial.println("Fader: input received!");
-#endif
-				//we got a trigger, probably a network msg
-				if (g_pattern != PATTERN_FADER) {
-#ifdef DEBUG
-					Serial.print("old pattern: ");
-					Serial.print(PATTERN_FADER);
-					Serial.print("   new pattern: ");
-					Serial.println(g_pattern);
-#endif
-					return;
-				}
-			}
+			if (pattern_interrupt(PATTERN_FADER))
+			  return;
 		}
 	}
 }
 
-void pattern_rgbpulse(){
-#ifdef DEBUG
-    Serial.println("Begin RGB Pulse");
-#endif                        
+// = = = = = = = = = = = = = = = = = = = = = = = = = = =
+// PATTERN_PULSER:
+void pattern_rgbpulse() {
   int r, g, b;
-// see http://arduino.cc/en/Reference/analogWrite
- 
-  // fade from blue to violet
-  for (r = 0; r < 256; r++) { 
-    analogWrite(REDPIN, r);
-	if (my_delay_with_break(FADESPEED) && g_pattern != PATTERN_FADER) return;
-  } 
-  // fade from violet to red
-  for (b = 255; b > 0; b--) { 
-    analogWrite(BLUEPIN, b);
-	if (my_delay_with_break(FADESPEED) && g_pattern != PATTERN_FADER) return;
-  }
-  // fade from red to yellow
-  for (g = 0; g < 256; g++) { 
-    analogWrite(GREENPIN, g);
-	if (my_delay_with_break(FADESPEED) && g_pattern != PATTERN_FADER) return;
-  }
-  // fade from yellow to green
-  for (r = 255; r > 0; r--) { 
-    analogWrite(REDPIN, r);
-	if (my_delay_with_break(FADESPEED) && g_pattern != PATTERN_FADER) return;
-  }
-  // fade from green to teal
-  for (b = 0; b < 256; b++) { 
-    analogWrite(BLUEPIN, b);
-	if (my_delay_with_break(FADESPEED) && g_pattern != PATTERN_FADER) return;
-  }
-  // fade from teal to blue
-  for (g = 255; g > 0; g--) { 
-    analogWrite(GREENPIN, g);
-	if (my_delay_with_break(FADESPEED) && g_pattern != PATTERN_FADER) return;
+#ifdef DEBUG
+  Serial.println("Begin pattern: rgbPulse");
+#endif                
+  while (true) 
+  {    
+    // fade from blue to violet
+    for (r = 0; r < 256; r++) { 
+      analogWrite(REDPIN, r);
+      my_delay_with_break(PULSE_COLORSPEED);
+      if (pattern_interrupt(PATTERN_PULSER)) return;
+    } 
+    // fade from violet to red
+    for (b = 255; b > 0; b--) { 
+      analogWrite(BLUEPIN, b);
+      my_delay_with_break(PULSE_COLORSPEED);
+      if (pattern_interrupt(PATTERN_PULSER)) return;
+    }
+    // fade from red to yellow
+    for (g = 0; g < 256; g++) { 
+      analogWrite(GREENPIN, g);
+      my_delay_with_break(PULSE_COLORSPEED);
+      if (pattern_interrupt(PATTERN_PULSER)) return;
+    }
+    // fade from yellow to green
+    for (r = 255; r > 0; r--) { 
+      analogWrite(REDPIN, r);
+      my_delay_with_break(PULSE_COLORSPEED);
+      if (pattern_interrupt(PATTERN_PULSER)) return;
+    }
+    // fade from green to teal
+    for (b = 0; b < 256; b++) { 
+      analogWrite(BLUEPIN, b);
+      my_delay_with_break(PULSE_COLORSPEED);
+      if (pattern_interrupt(PATTERN_PULSER)) return;
+    }
+    // fade from teal to blue
+    for (g = 255; g > 0; g--) { 
+      analogWrite(GREENPIN, g);
+      my_delay_with_break(PULSE_COLORSPEED);
+      if (pattern_interrupt(PATTERN_PULSER)) return;
+    }
   }
 }
 
@@ -686,22 +805,29 @@ void pattern_rgbpulse(){
 // PATTERN_CLOCKSYNC:
 void pattern_clockSync( byte opts = 0){
 #ifdef DEBUG
-    Serial.println("Begin pattern_clockSync");
+    Serial.println("Begin pattern: clockSync");
 #endif                    
-  // milliseconds, about the time it takes to send a packet
-  unsigned long time_on = 750; 
+  // rf12b-calibrated, about the time it takes to send a packet in milliseconds
   unsigned long time_cycle = 750;
-  
+//  unsigned long time_on = 750; //experimental
+
+  // loop variables use to keep track of how long to listen  
   unsigned long time_start = 0;
   unsigned long time_end = 0;
+  
+  // track total time on and off, millis
   unsigned long sum_ON = 0;
   unsigned long sum_OFF = 0;
   
+  // used to make adjustments to the time_cycle
   int ON_longer = 0;
   int OFF_longer = 0;
+  
+  // track pings received in either on/off state
   int ON_count = 0;
   int OFF_count = 0;
 
+  //turn all lights off
   pattern_off(opts);
 
 //  debounceInputs();
@@ -710,57 +836,66 @@ void pattern_clockSync( byte opts = 0){
 
   while(true)
   {
+    //reset counters for this loop
     ON_count = 0;
     sum_ON = 0;
     OFF_count = 0;
-	rgbSet(123,123,123); //turn LED on
     
-    //transmit a packet
+    //Phase1
+    rgbSet(123,123,123); //turn LED on
+    
+    //transmit a packet, while the LED is on
     if (rf12_canSend()) {
       uint8_t send_data = PATTERN_CLOCKSYNC_PING;
       rf12_sendStart(0, &send_data, 1);
     }
-    time_start = millis();
-    time_end = time_start + time_on + ON_longer;
+    //welcome back from radio land
+    
+    time_start = millis(); //start time is now
+    time_end = time_start + time_cycle + ON_longer; // decide how long to listen w/ LED on
 
-    while (millis() < time_end) { //how far are we from the start
+    while (millis() < time_end) { //listen for pings until the time is up
 //      debounceInputs();
-      if (rf12_recvDone() && !rf12_crc) { //did we get a good packet?
+      if (rf12_recvDone() && !rf12_crc) { //if we get a good packet
+      //this means somebody else is on at the same time as me, keep track
         sum_ON += millis() - time_start;
         ON_count++;
       }
     }
 
-	rgbSet(0,0,0); //turn LED off
-    time_start = millis();
-    time_end = time_start + time_cycle + OFF_longer;
+    //Phase2
+    rgbSet(MAX_RGB_VALUE, MAX_RGB_VALUE, MAX_RGB_VALUE); //turn LED off
+    
+    time_start = millis(); //reset start time to now
+    time_end = time_start + time_cycle + OFF_longer; //how long to listen w/ LED off
 
-    while(millis() < time_end) {
+    while (millis() < time_end) { //listen for pings until the time is up
 //      debounceInputs();
-      if (rf12_recvDone() && rf12_crc == 0){
-        sum_OFF += time_end - millis(); //how far are we from the start of the next cycle
+      if (rf12_recvDone() && rf12_crc == 0){ //if we get a good packet
+      //this means somebody else is on when I am off, keep track
+        sum_OFF += time_end - millis(); 
         OFF_count++;
       }
     }
   
-    if (ON_count > OFF_count) //it was ON longer
+    if (ON_count > OFF_count) // I am more in-sync than out-of-sync
     {
       ON_longer = 0;
       OFF_longer = (sum_ON/ON_count) >> 1;
     } 
-    else if (ON_count < OFF_count) //it was OFF longer
+    else if (ON_count < OFF_count) //I am more out-of-sync than in-sync
     {
       OFF_longer = 0;
       ON_longer = (sum_ON/ON_count) >> 1;
     } 
-    else if (ON_count == 0 && OFF_count == 0)
+    else if (ON_count == 0 && OFF_count == 0) //initial state...
     {
       ON_longer = 0;
       OFF_longer = 0;
     } 
-    else if (ON_count == OFF_count)
+    else if (ON_count == OFF_count) //I am just plain out of phase
     {
-      if (sum_ON < sum_OFF)
+      if (sum_ON < sum_OFF) // use a more precise method
       {
         ON_longer = 0;
         OFF_longer = (sum_ON/ON_count) >> 1;
@@ -780,6 +915,7 @@ void pattern_clockSync( byte opts = 0){
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+// = = = = = = = = = = = = = = = = = = = = = = = = = = =
 // Helper functions 
 
 // Create a 15 bit color value from R,G,B
@@ -820,24 +956,8 @@ unsigned int Wheel(byte WheelPos)
   return(Color(r,g,b));
 }
 
-
-// don't waste cycles with delay(); poll for new inputs
-int my_delay_with_break(unsigned long wait_time) {
-  unsigned long t0 = millis();
-  while( (millis() - t0) < wait_time )
-    if( my_interrupt() )
-      return 1;
-  return 0;
-}
-// don't waste cycles with delay(); poll for new inputs
-void my_delay(unsigned long wait_time) {
-  unsigned long t0 = millis();
-  while( millis() - t0 < wait_time )
-    my_interrupt();
-}
-
-
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+// = = = = = = = = = = = = = = = = = = = = = = = = = = =
 // Network communication
 
 // this just outputs received msgs to serial. Only gets called ifdef DEBUG
@@ -888,60 +1008,64 @@ int my_recvDone() {
     // It checks to see if a packet has been received, returns true if it has
     if (rf12_recvDone()) {
 #ifdef DEBUG
-        debugRecv();
+        debugRecv(); //print the message if in debug mode
 #endif        
-		// if we got a bad crc, then no message received. (IOW this function becomes a noop)
-		msgReceived = !rf12_crc;
-		// If a new transmission comes in and CRC is ok, don't poll recv state again,
-        // otherwise rf12_crc, rf12_len, and rf12_data will be reset.
+        // if we got a bad crc, then no message was received.
+        msgReceived = !rf12_crc;
         if (rf12_crc == 0) {
+          // If a new transmission comes in and CRC is ok, don't poll recv state again -
+          // otherwise rf12_crc, rf12_len, and rf12_data will be reset.
             activityLed(1);
-			if (RF12_WANTS_ACK && (config.collect_mode) == 0) {
-				showString(PSTR(" -> ack\n"));
-				rf12_sendStart(RF12_ACK_REPLY, 0, 0);
-			}
+            //ack if requested
+            if (RF12_WANTS_ACK && (config.collect_mode) == 0) {
+                  showString(PSTR(" -> ack\n"));
+                  rf12_sendStart(RF12_ACK_REPLY, 0, 0);
+            }
 #ifdef DEBUG
-			Serial.print("rf12_len "); Serial.println(rf12_len);
-			Serial.print("rf12_data[0] "); Serial.println(rf12_data[0]);
+            Serial.print("rf12_len "); Serial.println(rf12_len);
+            Serial.print("rf12_data[0] "); Serial.println(rf12_data[0]);
 #endif
-            // assign the pattern that we recieve, unless...
+            // grab the pattern that we recieve, unless no data...
             int new_pattern = ((rf12_len > 0) ? rf12_data[0] : g_pattern);
 
-			// ...if we get a crazy clocksync ping msg, then just ignore it
-			if (msgReceived = (new_pattern != PATTERN_CLOCKSYNC_PING)) {
-				g_pattern = new_pattern;
-			}
+            // ...if we get a crazy clocksync ping msg, then just ignore it
+            if (msgReceived = (new_pattern != PATTERN_CLOCKSYNC_PING)) {
+                //otherwise, msgReceived is true and set the new pattern
+                g_pattern = new_pattern;
+            }
 #ifdef DEBUG
-	        Serial.print("pattern "); Serial.println(g_pattern);
+            Serial.print("pattern "); Serial.println(g_pattern);
 #endif
             activityLed(0);
         }
 #ifdef DEBUG
         Serial.print("msgRx "); Serial.println(msgReceived);
 #endif
-      }
-  return msgReceived;
+    }
+    return msgReceived;
 }
 
 // = = = = = = = = = = = = = = = = = = = = = = = = = = =
 // my_send
-
 int my_send() {
-    if (cmd) {
+    if (msg_cmd) {
       if (rf12_canSend()) {
         //if rf12_canSend returns 1, then you must subsequently call rf12_sendStart.
         //do yo thang:
         activityLed(1);
 #ifdef DEBUG
         showString(PSTR(" -> "));
-        Serial.print((word) sendLen);
+        Serial.print((word) msg_sendLen);
         showString(PSTR(" b\n"));
 #endif
-        byte header = cmd == 'a' ? RF12_HDR_ACK : 0;
-        if (dest)
-            header |= RF12_HDR_DST | dest;
-        rf12_sendStart(header, stack, sendLen);
-        cmd = 0;
+        //make this an ack if requested
+        byte header = msg_cmd == 'a' ? RF12_HDR_ACK : 0;
+        // if not broadcast, set the destination node
+        if (msg_dest)
+            header |= RF12_HDR_DST | msg_dest;
+        //actually send the message
+        rf12_sendStart(header, msg_stack, msg_sendLen);
+        msg_cmd = 0;
 
         activityLed(0);
     }
@@ -949,7 +1073,7 @@ int my_send() {
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-// top-level functions 
+// top-level / timing functions 
 
 // = = = = = = = = = = = = = = = = = = = = = = = = = = =
 // handleInputs()
@@ -967,6 +1091,10 @@ int handleInputs() {
     // my_recvDone may alter g_pattern if the crc is good
     trigger |= my_recvDone();
 
+#ifdef DEBUG
+    if (trigger) Serial.println("Input!");
+#endif
+
     return trigger;
 }
 
@@ -975,12 +1103,47 @@ int handleInputs() {
 // A pattern should call this function (or some equivalent of sub-functions)
 // whenever reasonably possible to keep network comm and serial IO going. 
 // returns the output of handleInputs()
-int my_interrupt()
+void my_interrupt()
 {
-    int inputReceived = handleInputs();  //check for serial input, call my_recvDone()
+    handleInputs();  //check for serial input, call my_recvDone()
     my_send(); //try to send, if (cmd != 0)
 
-    return inputReceived;
+    return;
+}
+
+// = = = = = = = = = = = = = = = = = = = = = = = = = = =
+// delay functions - // don't waste cycles with delay(); 
+
+//poll for new inputs and break if an interrupt is detected
+void my_delay_with_break(unsigned long wait_time) {
+  unsigned long t0 = millis();
+  while( (millis() - t0) < wait_time )
+    if ( handleInputs() ) return;
+}
+// poll for new inputs, detect interrupts but do not break the delay
+void my_delay(unsigned long wait_time) {
+  unsigned long t0 = millis();
+  while( millis() - t0 < wait_time )
+    handleInputs();
+}
+
+void powerDown()
+{
+    rf12_sleep(RF12_SLEEP);
+
+    // blink the blue LED three times, just because we can
+    PORTB |= bit(1);
+    DDRB |= bit(1);
+    for (byte i = 0; i < 6; ++i) {
+        delay(100);
+        PINB = bit(1); // toggles
+    }
+
+    // stop responding to interrupts
+    cli();
+    
+    // zzzzz... this code is now in the Ports library
+    Sleepy::powerDown();
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1001,27 +1164,34 @@ void setup() {
     saveConfig();
   }
 
-  g_pattern = PATTERN_TWINKLE;   // Wake up and twinkle
+  g_pattern = PATTERN_SLEEPY;  
 
-    Serial.begin(SERIAL_BAUD);
-    Serial.println();
-    displayVersion();
+  Serial.begin(SERIAL_BAUD);
+  Serial.println();
+  displayVersion();
 
-    if (rf12_configSilent()) {
-        loadConfig();
-    } else {
-        memset(&config, 0, sizeof config);
-        config.nodeId = 0x81;       // 868 MHz, node 1
-        config.group = 0xD4;        // default group 212
-        config.frequency_offset = 1600;
-        config.quiet_mode = true;   // Default flags, quiet on
-        saveConfig();
-        rf12_configSilent();
-    }
+  if (rf12_configSilent()) {
+      loadConfig();
+  } else {
+      memset(&config, 0, sizeof config);
+      config.nodeId = 0x81;       // 868 MHz, node 1
+      config.group = 0xD4;        // default group 212
+      config.frequency_offset = 1600;
+      config.quiet_mode = true;   // Default flags, quiet on
+      saveConfig();
+      rf12_configSilent();
+  }
 
-    rf12_configDump();
-
-    randomSeed(analogRead(0));
+  rf12_configDump();
+  df_initialize();
+    
+  // turn the radio off in the most power-efficient manner
+  Sleepy::loseSomeTime(32);
+  rf12_sleep(RF12_SLEEP);
+  // wait another 2s for the power supply to settle
+  Sleepy::loseSomeTime(2000);
+  
+  randomSeed(analogRead(0));
 }
 
 // = = = = = = = = = = = = = = = = = = = = = = = = = = =
@@ -1032,22 +1202,26 @@ void runPattern() {
   Serial.print("Run pattern "); Serial.println(g_pattern);
 #endif
 
+  // Update this switch if adding a pattern! (primitive callback)
   switch( g_pattern ) {
       default:
       case PATTERN_OFF:
-		  pattern_off(1);  // all lights off, including/especially the lantern
+        pattern_off(1);  // all lights off, including/especially the lantern
         break;
-      case PATTERN_TWINKLE:
-		pattern_randomTwinkle(); // just blink lantern erratically, minimal radio comm
+      case PATTERN_SLEEPY:
+	pattern_sleepyTwinkle(); // just blink lantern erratically, minimal radio comm
         break;
       case PATTERN_FIREFLY:
-		pattern_teamFirefly(); // slowly beginning to blink together, timed tx/rx
+        pattern_teamFirefly(); // slowly beginning to blink together, timed tx/rx
         break;
       case PATTERN_CLOCKSYNC:
-		pattern_clockSync();  // synchronizing firefly lanterns; the end-game
-	  case PATTERN_FADER:
-		  pattern_rgbFader(); // rgb fading in 3-space. matrix math is fun 4 ur head
+        pattern_clockSync();  // synchronizing firefly lanterns
         break;
+      case PATTERN_FADER:
+        pattern_rgbFader(); // rgb fading in 3-space. matrix math is fun
+        break;
+      case PATTERN_PULSER:
+        pattern_rgbpulse(); // more primitive rgb fader
   }
 
   activityLed(0);
@@ -1057,6 +1231,6 @@ void runPattern() {
 // Main loop
 // = = = = = = = = = = = = = = = = = = = = = = = = = = =
 void loop() {
-    my_interrupt(); // note that patterns should also call interrupts, on their own time
+    my_interrupt(); // note that patterns should also check for interrupts, on their own time
     runPattern();  // switches control to the active pattern
 }
