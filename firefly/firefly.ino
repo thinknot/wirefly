@@ -31,14 +31,11 @@ static uint8_t my_data[RF12_BUFFER_SIZE];
 #define COLLECT 0x20 // collect mode, i.e. pass incoming without sending acks
 
 // Select platform features:
-#define LUXMETER
+//#define LUXMETER
 //#define TIMER
 //#define LED_STRIP
 //#define LED_NEOPIX
 #define LED_SUPERFLUX
-
-// boilerplate for low-power waiting
-ISR(WDT_vect) { Sleepy::watchdogEvent(); }
 
 #define REDPIN 5        // DIO2
 #define GREENPIN 6      // DIO3
@@ -64,8 +61,9 @@ byte highGain;
 #define PATTERN_PULSER          4
 #define PATTERN_CLOCKSYNC	10
 #define PATTERN_CLOCKSYNC_PING	11
-#define PATTERN_SLEEPY          30
 #define PATTERN_LUXMETER        90
+
+ISR(WDT_vect) { Sleepy::watchdogEvent(); }
 
 #define PULSE_COLORSPEED 5     // For PATTERN_PULSE, make this higher to slow down
 
@@ -78,18 +76,6 @@ static void activityLed (byte on) {
 #ifdef LED_PIN
     pinMode(LED_PIN, OUTPUT);
     digitalWrite(LED_PIN, !on);
-#endif
-}
-
-static void radioSleep (word ms) {
-#if DEBUG_LED
-  bitSet(PORTB, 1); // LED off
-#endif
-  rf12_sleep(RF12_SLEEP);
-  Sleepy::loseSomeTime(ms);
-  rf12_sleep(RF12_WAKEUP);
-#if DEBUG_LED
-  bitClear(PORTB, 1); // LED on
 #endif
 }
 
@@ -391,16 +377,6 @@ static void handleSerialInput (char c) {
             rf12_configSilent();
             break;
 */
-        case 'z': // put the ATmega in ultra-low power mode (reset needed)
-            if (msg_value == 123) {
-                showString(PSTR(" Zzz...\n"));
-                Serial.flush();
-                rf12_sleep(RF12_SLEEP);
-                cli();
-                Sleepy::powerDown();
-            }
-            break;
-
         case 'q': // turn quiet mode on or off (don't report bad packets)
             config.quiet_mode = msg_value;
             saveConfig();
@@ -584,23 +560,6 @@ void pattern_randomTwinkle() {
         //check with the outside world:
         if (pattern_interrupt(PATTERN_TWINKLE)) return;
     }
-}
-
-// PATTERN_SLEEPY
-void pattern_sleepyTwinkle() {
-  int wait_millis = 0; // time to stay either on or off
-
-  while (true) {
-      if (pattern_interrupt(PATTERN_SLEEPY)) return;
-      
-      wait_millis = random(1500, 6999); // time to stay off
-      rgbSet(MAX_RGB_VALUE, MAX_RGB_VALUE, MAX_RGB_VALUE);
-      radioSleep(wait_millis);
-
-      wait_millis = random(500, 900); // time to stay on
-      rgbSet(23, 23, 23);
-      radioSleep(wait_millis);
-  }
 }
 
 // = = = = = = = = = = = = = = = = = = = = = = = = = = =
@@ -1127,25 +1086,6 @@ void my_delay(unsigned long wait_time) {
     handleInputs();
 }
 
-void powerDown()
-{
-    rf12_sleep(RF12_SLEEP);
-
-    // blink the blue LED three times, just because we can
-    PORTB |= bit(1);
-    DDRB |= bit(1);
-    for (byte i = 0; i < 6; ++i) {
-        delay(100);
-        PINB = bit(1); // toggles
-    }
-
-    // stop responding to interrupts
-    cli();
-    
-    // zzzzz... this code is now in the Ports library
-    Sleepy::powerDown();
-}
-
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 // Setup
 // = = = = = = = = = = = = = = = = = = = = = = = = = = =
@@ -1164,7 +1104,7 @@ void setup() {
     saveConfig();
   }
 
-  g_pattern = PATTERN_SLEEPY;  
+  g_pattern = PATTERN_OFF;
 
   Serial.begin(SERIAL_BAUD);
   Serial.println();
@@ -1184,13 +1124,15 @@ void setup() {
 
   rf12_configDump();
   df_initialize();
-    
+
+#ifndef DEBUG    
   // turn the radio off in the most power-efficient manner
   Sleepy::loseSomeTime(32);
   rf12_sleep(RF12_SLEEP);
   // wait another 2s for the power supply to settle
   Sleepy::loseSomeTime(2000);
-  
+#endif
+
   randomSeed(analogRead(0));
 }
 
@@ -1208,8 +1150,8 @@ void runPattern() {
       case PATTERN_OFF:
         pattern_off(1);  // all lights off, including/especially the lantern
         break;
-      case PATTERN_SLEEPY:
-	pattern_sleepyTwinkle(); // just blink lantern erratically, minimal radio comm
+      case PATTERN_TWINKLE:
+        pattern_randomTwinkle();
         break;
       case PATTERN_FIREFLY:
         pattern_teamFirefly(); // slowly beginning to blink together, timed tx/rx
