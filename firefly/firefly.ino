@@ -13,7 +13,7 @@
 
 #define MAJOR_VERSION RF12_EEPROM_VERSION // bump when EEPROM layout changes
 #define MINOR_VERSION 2                   // bump on other non-trivial changes
-#define VERSION "[Wirefly 10-2014]"
+#define VERSION "[Wirefly 11-2014]"
 #define TINY        0
 #define SERIAL_BAUD 57600   // adjust as needed
 #define DATAFLASH   0       // set to 0 for non-JeeLinks, else 4/8/16 (Mbit)
@@ -23,7 +23,7 @@ const char INVALID1[] PROGMEM = "\rInvalid\n";
 const char INITFAIL[] PROGMEM = "config save failed\n";
 
 // comment out below before compiling production codez!
-//#define DEBUG 1
+#define DEBUG 1
 
 #define RF12_BUFFER_SIZE	66
 static uint8_t my_data[RF12_BUFFER_SIZE];
@@ -423,15 +423,17 @@ static void handleSerialInput (char c) {
             }
             break;
 */
-        case 'p': // select a new pattern 
-                  // (side effect: broadcast a pattern command to the network)
-            //immediately change pattern, rather than wait on a network msg
-            g_pattern = msg_value; 
-            //broadcast the new pattern
+        case 'p': // select a new pattern (side effect: broadcast new pattern to the network)
+            //immediately change pattern, rather than wait on a network msg:
+            g_pattern = msg_value;
+            //broadcast the new pattern:
             msg_cmd = c;
             msg_stack[0] = msg_value;
             msg_sendLen = 1;
-            msg_dest = 0;
+            msg_dest = 0; //broadcast message
+#ifdef DEBUG
+            Serial.println("New pattern " + g_pattern);
+#endif
             break;
             
         default:
@@ -440,7 +442,7 @@ static void handleSerialInput (char c) {
     }
 
     msg_value = msg_top = 0;
-}
+  }
 //    memset(stack, 0, sizeof stack);
 /*
   else if ('A' <= c && c <= 'Z') {
@@ -489,9 +491,12 @@ void pattern_off(byte opts = 0) {
   strip.show();
 */
   rgbSet(MAX_RGB_VALUE, MAX_RGB_VALUE, MAX_RGB_VALUE);
-  
-  my_delay(50);  //TODO: need to go into low power mode here instead of delay
+  while (1)
+  {  
+    my_delay(350);  //TODO: need to go into low power mode here instead of delay
 //  debounceInputs();
+    if (pattern_interrupt(PATTERN_OFF)) return;
+  }
 }
 
 // = = = = = = = = = = = = = = = = = = = = = = = = = = =
@@ -762,7 +767,7 @@ void pattern_rgbpulse() {
 
 // = = = = = = = = = = = = = = = = = = = = = = = = = = =
 // PATTERN_CLOCKSYNC:
-void pattern_clockSync( byte opts = 0){
+void pattern_clockSync( byte opts = 0) {
 #ifdef DEBUG
     Serial.println("Begin pattern: clockSync");
 #endif                    
@@ -816,9 +821,24 @@ void pattern_clockSync( byte opts = 0){
     while (millis() < time_end) { //listen for pings until the time is up
 //      debounceInputs();
       if (rf12_recvDone() && !rf12_crc) { //if we get a good packet
-      //this means somebody else is on at the same time as me, keep track
-        sum_ON += millis() - time_start;
-        ON_count++;
+#ifdef DEBUG
+//        Serial.print("rf12_len "); Serial.println(rf12_len);
+//        Serial.print("rf12_data[0] "); Serial.println(rf12_data[0]);
+#endif
+        // grab any pattern that we recieve, unless no data...
+        int new_pattern = ((rf12_len > 0) ? rf12_data[0] : g_pattern);
+        if (new_pattern != PATTERN_CLOCKSYNC_PING) {
+            //set the new pattern and bail out
+            g_pattern = new_pattern;
+            return;
+        }
+        // ...if we get a clocksync ping msg, then calculate
+        else
+        {
+          //this means somebody else is on at the same time as me, keep track
+          sum_ON += millis() - time_start;
+          ON_count++;
+        }              
       }
     }
 
@@ -831,9 +851,24 @@ void pattern_clockSync( byte opts = 0){
     while (millis() < time_end) { //listen for pings until the time is up
 //      debounceInputs();
       if (rf12_recvDone() && rf12_crc == 0){ //if we get a good packet
-      //this means somebody else is on when I am off, keep track
-        sum_OFF += time_end - millis(); 
-        OFF_count++;
+#ifdef DEBUG
+//        Serial.print("rf12_len "); Serial.println(rf12_len);
+//        Serial.print("rf12_data[0] "); Serial.println(rf12_data[0]);
+#endif
+        // grab any pattern that we recieve, unless no data...
+        int new_pattern = ((rf12_len > 0) ? rf12_data[0] : g_pattern);
+        if (new_pattern != PATTERN_CLOCKSYNC_PING) {
+            //set the new pattern and bail out
+            g_pattern = new_pattern;
+            return;
+        }
+        // ...if we get a clocksync ping msg, then calculate
+        else
+        {
+          //this means somebody else is on when I am off, keep track
+          sum_OFF += time_end - millis(); 
+          OFF_count++;
+        }
       }
     }
   
@@ -866,8 +901,9 @@ void pattern_clockSync( byte opts = 0){
       }
     }
 
-    if( handleInputs() && (g_pattern <= PATTERN_CLOCKSYNC)) {
-		return;
+    if (Serial.available()) {
+        handleSerialInput(Serial.read());
+        my_send();
     }
 
   }
@@ -998,7 +1034,7 @@ int my_recvDone() {
             activityLed(0);
         }
 #ifdef DEBUG
-        Serial.print("msgRx "); Serial.println(msgReceived);
+        Serial.print("msgReceived: "); Serial.println(msgReceived);
 #endif
     }
     return msgReceived;
@@ -1008,12 +1044,13 @@ int my_recvDone() {
 // my_send
 int my_send() {
     if (msg_cmd) {
-      if (rf12_canSend()) {
         //if rf12_canSend returns 1, then you must subsequently call rf12_sendStart.
+        if (rf12_canSend()) {
         //do yo thang:
         activityLed(1);
 #ifdef DEBUG
         showString(PSTR(" -> "));
+        Serial.print((char) msg_cmd); Serial.print(" ");
         Serial.print((word) msg_sendLen);
         showString(PSTR(" b\n"));
 #endif
@@ -1047,11 +1084,11 @@ int handleInputs() {
 
 //  debounceInputs();
 
-    // my_recvDone may alter g_pattern if the crc is good
+    // note that my_recvDone() may alter g_pattern, if the crc is good
     trigger |= my_recvDone();
 
 #ifdef DEBUG
-    if (trigger) Serial.println("Input!");
+    if (trigger) Serial.println(".");
 #endif
 
     return trigger;
