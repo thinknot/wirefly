@@ -1,6 +1,7 @@
 /// Configure some values in EEPROM for easy config of the RF12 later on.
 // 2009-05-06 <jc@wippler.nl> http://opensource.org/licenses/mit-license.php
 
+// Based on http://jeelabs.net/projects/jeelib/wiki/RF12demo
 // this version adds flash memory support, 2009-11-19
 // Adding frequency features, author JohnO, 2013-09-05
 // Major EEPROM format change, refactoring, and cleanup for v12, 2014-02-13
@@ -30,6 +31,10 @@ static uint8_t my_data[RF12_BUFFER_SIZE];
 
 #define COLLECT 0x20 // collect mode, i.e. pass incoming without sending acks
 
+// http://jeelabs.net/pub/docs/jeelib/classSleepy.html
+// WDT inturrupt handler, required to use Sleepy::loseSomeTime()
+ISR(WDT_vect) { Sleepy::watchdogEvent(); }
+
 // Select platform features:
 //#define LUXMETER
 //#define TIMER
@@ -54,16 +59,14 @@ byte highGain;
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 // = = = = = = = = = = = = = = = = = = = = = = = = = = =
 // Pattern control, pattern variables
-#define PATTERN_OFF		0
-#define PATTERN_TWINKLE		1
+#define PATTERN_OFF             0
+#define PATTERN_TWINKLE         1
 #define PATTERN_FIREFLY         2
 #define PATTERN_FADER           3
 #define PATTERN_PULSER          4
-#define PATTERN_CLOCKSYNC	10
-#define PATTERN_CLOCKSYNC_PING	11
-#define PATTERN_LUXMETER        90
-
-ISR(WDT_vect) { Sleepy::watchdogEvent(); }
+#define PATTERN_CLOCKSYNC      10
+#define PATTERN_CLOCKSYNC_PING 11
+#define PATTERN_LUXMETER       90
 
 #define PULSE_COLORSPEED 5     // For PATTERN_PULSE, make this higher to slow down
 
