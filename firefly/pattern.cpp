@@ -67,7 +67,7 @@ void pattern_off() {
 	 */
 	rgbSet(MAX_RGB_VALUE, MAX_RGB_VALUE, MAX_RGB_VALUE);
 	while (1)
-	{  
+	{
 		my_delay(350);  //TODO: need to go into low power mode here instead of delay
 		//  debounceInputs();
 		if (pattern_interrupt(PATTERN_OFF)) return;
@@ -109,7 +109,7 @@ void pattern_randomTwinkle() {
 #ifdef DEBUG
 	Serial.println("pattern_randomTwinkle()");
 #endif
-	int lantern_on = 0; // LED 1 = enabled, 0 = disabled 
+	int lantern_on = 0; // LED 1 = enabled, 0 = disabled
 	int wait_millis = 0; // time to stay either on or off
 	unsigned long clock_elapsed = 0; // counting how long it's been on or off
 
@@ -120,9 +120,9 @@ void pattern_randomTwinkle() {
 		clock_recent = clock_current; //save clock_current from the previous loop() to clock_recent
 		clock_current = millis(); //update to "now"
 
-		//this is roll-over proof, if clock_current is small, and clock_recent large, 
+		//this is roll-over proof, if clock_current is small, and clock_recent large,
 		//the result rolls over to a small positive value:
-		clock_elapsed = clock_elapsed + (clock_current - clock_recent);    
+		clock_elapsed = clock_elapsed + (clock_current - clock_recent);
 
 		//        debounceInputs();
 
@@ -151,13 +151,13 @@ void pattern_teamFirefly() {
 	Serial.println("pattern_teamFirefly()");
 #endif
 
-	/*    
+/*
 MilliTimer g_sendTimer;
 byte g_needToSend;
     // check the timer for sending a network message
     if (g_sendTimer.poll(3000)) // 3 seconds
         g_needToSend = 1;
-	 */
+*/
 
 	//check with the outside world:
 	if (pattern_interrupt(PATTERN_FIREFLY)) return;
