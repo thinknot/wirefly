@@ -29,16 +29,16 @@ static uint8_t my_data[RF12_BUFFER_SIZE];
 
 // RF12 configuration area
 typedef struct {
-    byte nodeId;            // used by rf12_config, offset 0
-    byte group;             // used by rf12_config, offset 1
-    byte format;            // used by rf12_config, offset 2
-    byte hex_output   :2;   // 0 = dec, 1 = hex, 2 = hex+ascii
-    byte collect_mode :1;   // 0 = ack, 1 = don't send acks
-    byte quiet_mode   :1;   // 0 = show all, 1 = show only valid packets
-    byte spare_flags  :4;
-    word frequency_offset;  // used by rf12_config, offset 4
-    byte pad[RF12_EEPROM_SIZE-8];
-    word crc;
+	byte nodeId;            // used by rf12_config, offset 0
+	byte group;             // used by rf12_config, offset 1
+	byte format;            // used by rf12_config, offset 2
+	byte hex_output   :2;   // 0 = dec, 1 = hex, 2 = hex+ascii
+	byte collect_mode :1;   // 0 = ack, 1 = don't send acks
+	byte quiet_mode   :1;   // 0 = show all, 1 = show only valid packets
+	byte spare_flags  :4;
+	word frequency_offset;  // used by rf12_config, offset 4
+	byte pad[RF12_EEPROM_SIZE-8];
+	word crc;
 } RF12Config;
 
 static RF12Config config;
