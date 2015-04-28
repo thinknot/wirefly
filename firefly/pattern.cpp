@@ -7,6 +7,46 @@
 #include "Arduino.h"
 #include "firefly.h"
 
+/*
+// Create a 15 bit color value from R,G,B
+unsigned int Color(uint8_t r, uint8_t g, uint8_t b)
+{
+  //Take the lowest 5 bits of each value and append them end to end
+#ifdef UPSIDE_DOWN_LEDS
+  //swap green and blue bits
+  return( ((unsigned int)b & 0x1F )<<10 | ((unsigned int)g & 0x1F)<<5 | (unsigned int)r & 0x1F);
+#else
+  return( ((unsigned int)g & 0x1F )<<10 | ((unsigned int)b & 0x1F)<<5 | (unsigned int)r & 0x1F);
+#endif
+}
+
+//Input a value 0 to 127 to get a color value.
+//The colours are a transition r - g -b - back to r
+unsigned int Wheel(byte WheelPos)
+{
+  byte r,g,b;
+  switch(WheelPos >> 5)
+  {
+  case 0:
+    r=31- WheelPos % 32;   //Red down
+    g=WheelPos % 32;      // Green up
+    b=0;                  //blue off
+    break; 
+  case 1:
+    g=31- WheelPos % 32;  //green down
+    b=WheelPos % 32;      //blue up
+    r=0;                  //red off
+    break; 
+  case 2:
+    b=31- WheelPos % 32;  //blue down 
+    r=WheelPos % 32;      //red up
+    g=0;                  //green off
+    break; 
+  }
+  return(Color(r,g,b));
+}
+*/
+
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 // = = = = = = = = = = = = = = = = = = = = = = = = = = =
 // PATTERN functions begin here
@@ -67,7 +107,7 @@ void pattern_luxMeter() {
 // PATTERN_TWINKLE:
 void pattern_randomTwinkle() {
 #ifdef DEBUG
-    Serial.println("Begin pattern: randomTwinkle");
+    Serial.println("pattern_randomTwinkle()");
 #endif                
     int lantern_on = 0; // LED 1 = enabled, 0 = disabled 
     int wait_millis = 0; // time to stay either on or off
@@ -75,17 +115,17 @@ void pattern_randomTwinkle() {
 
     unsigned long clock_current = 0; //this variable will be updated each iteration of loop
     unsigned long clock_recent = 0; //no time has passed yet
-    
-    while (true) {        
+
+    while (true) {
         clock_recent = clock_current; //save clock_current from the previous loop() to clock_recent
         clock_current = millis(); //update to "now"
-        
+
         //this is roll-over proof, if clock_current is small, and clock_recent large, 
         //the result rolls over to a small positive value:
         clock_elapsed = clock_elapsed + (clock_current - clock_recent);    
 
 //        debounceInputs();
-        
+
         if (clock_elapsed >= wait_millis) { //time to switch
             if (lantern_on == 1) { // previously on
                 wait_millis = random(1500, 6999); // time to stay off
@@ -108,8 +148,8 @@ void pattern_randomTwinkle() {
 // PATTERN_FIREFLY:
 void pattern_teamFirefly() {
 #ifdef DEBUG
-    Serial.println("Begin pattern: teamFirefly");
-#endif                
+    Serial.println("pattern_teamFirefly()");
+#endif
 
 /*    
 MilliTimer g_sendTimer;
@@ -117,7 +157,7 @@ byte g_needToSend;
     // check the timer for sending a network message
     if (g_sendTimer.poll(3000)) // 3 seconds
         g_needToSend = 1;
-*/        
+*/
 
         //check with the outside world:
         if (pattern_interrupt(PATTERN_FIREFLY)) return;
@@ -137,7 +177,7 @@ byte g_needToSend;
  path coordinates as the LED transition effect. 
 */
 
-// Slowing things down we need ...
+// Slowing things down we need...
 #define  FADE_TRANSITION_DELAY  70   // in milliseconds, between individual light changes
 #define  FADE_WAIT_DELAY        500  // in milliseconds, at the end of each traverse
 //
@@ -159,7 +199,7 @@ static coord  v; // the current rgb coordinates (colour) being displayed
 //  coordinates from one point to the next will naturally provide smooth colour transitions.
 /*
  Vertices of a cube
-      
+
     C+----------+G
     /|        / |
   B+---------+F |
@@ -204,24 +244,24 @@ void traverse(int dx, int dy, int dz)
 {
   if ((dx == 0) && (dy == 0) && (dz == 0))   // no point looping if we are staying in the same spot!
     return;
-    
+
   for (int i = 0; i < MAX_RGB_VALUE-MIN_RGB_VALUE; i++, v.x += dx, v.y += dy, v.z += dz)
   {
     // set the colour in the LED
     analogWrite(REDPIN, v.x);
     analogWrite(GREENPIN, v.y);
     analogWrite(BLUEPIN, v.z);
-    
+
     delay(FADE_TRANSITION_DELAY);
     // wait for the transition delay
-    
+
     if (pattern_interrupt(PATTERN_FADER))
       return;
   }
 
   delay(FADE_WAIT_DELAY);
   // give it an extra rest at the end of the traverse
-  
+
   if (pattern_interrupt(PATTERN_FADER))
     return;
 }
@@ -230,7 +270,7 @@ void pattern_rgbFader()
 {
 #ifdef DEBUG
     Serial.println("Begin pattern: rgbPulse");
-#endif                
+#endif
 	while (true) 
 	{
 		int v1, v2 = 0;    // the new vertex and the previous one
@@ -265,42 +305,42 @@ void pattern_rgbFader()
 void pattern_rgbpulse() {
   int r, g, b;
 #ifdef DEBUG
-  Serial.println("Begin pattern: rgbPulse");
-#endif                
-  while (true) 
-  {    
+  Serial.println("pattern_rgbPulse()");
+#endif
+  while (true)
+  {
     // fade from blue to violet
     for (r = 0; r < 256; r++) { 
       analogWrite(REDPIN, r);
       my_delay_with_break(PULSE_COLORSPEED);
       if (pattern_interrupt(PATTERN_PULSER)) return;
-    } 
+    }
     // fade from violet to red
-    for (b = 255; b > 0; b--) { 
+    for (b = 255; b > 0; b--) {
       analogWrite(BLUEPIN, b);
       my_delay_with_break(PULSE_COLORSPEED);
       if (pattern_interrupt(PATTERN_PULSER)) return;
     }
     // fade from red to yellow
-    for (g = 0; g < 256; g++) { 
+    for (g = 0; g < 256; g++) {
       analogWrite(GREENPIN, g);
       my_delay_with_break(PULSE_COLORSPEED);
       if (pattern_interrupt(PATTERN_PULSER)) return;
     }
     // fade from yellow to green
-    for (r = 255; r > 0; r--) { 
+    for (r = 255; r > 0; r--) {
       analogWrite(REDPIN, r);
       my_delay_with_break(PULSE_COLORSPEED);
       if (pattern_interrupt(PATTERN_PULSER)) return;
     }
     // fade from green to teal
-    for (b = 0; b < 256; b++) { 
+    for (b = 0; b < 256; b++) {
       analogWrite(BLUEPIN, b);
       my_delay_with_break(PULSE_COLORSPEED);
       if (pattern_interrupt(PATTERN_PULSER)) return;
     }
     // fade from teal to blue
-    for (g = 255; g > 0; g--) { 
+    for (g = 255; g > 0; g--) {
       analogWrite(GREENPIN, g);
       my_delay_with_break(PULSE_COLORSPEED);
       if (pattern_interrupt(PATTERN_PULSER)) return;
@@ -312,8 +352,8 @@ void pattern_rgbpulse() {
 // PATTERN_CLOCKSYNC:
 void pattern_clockSync( ) {
 #ifdef DEBUG
-    Serial.println("Begin pattern: clockSync");
-#endif                    
+    Serial.println("pattern_clockSync()");
+#endif
   // rf12b-calibrated, about the time it takes to send a packet in milliseconds
   unsigned long time_cycle = 750;
 //  unsigned long time_on = 750; //experimental
@@ -321,15 +361,15 @@ void pattern_clockSync( ) {
   // loop variables use to keep track of how long to listen  
   unsigned long time_start = 0;
   unsigned long time_end = 0;
-  
+
   // track total time on and off, millis
   unsigned long sum_ON = 0;
   unsigned long sum_OFF = 0;
-  
+
   // used to make adjustments to the time_cycle
   int ON_longer = 0;
   int OFF_longer = 0;
-  
+
   // track pings received in either on/off state
   int ON_count = 0;
   int OFF_count = 0;
@@ -347,17 +387,17 @@ void pattern_clockSync( ) {
     ON_count = 0;
     sum_ON = 0;
     OFF_count = 0;
-    
+
     //Phase1
     rgbSet(123,123,123); //turn LED on
-    
+
     //transmit a packet, while the LED is on
     if (rf12_canSend()) {
       uint8_t send_data = PATTERN_CLOCKSYNC_PING;
       rf12_sendStart(0, &send_data, 1);
     }
     //welcome back from radio land
-    
+
     time_start = millis(); //start time is now
     time_end = time_start + time_cycle + ON_longer; // decide how long to listen w/ LED on
 
@@ -381,13 +421,13 @@ void pattern_clockSync( ) {
           //this means somebody else is on at the same time as me, keep track
           sum_ON += millis() - time_start;
           ON_count++;
-        }              
+        }
       }
     }
 
     //Phase2
     rgbSet(MAX_RGB_VALUE, MAX_RGB_VALUE, MAX_RGB_VALUE); //turn LED off
-    
+
     time_start = millis(); //reset start time to now
     time_end = time_start + time_cycle + OFF_longer; //how long to listen w/ LED off
 
@@ -414,30 +454,30 @@ void pattern_clockSync( ) {
         }
       }
     }
-  
+
     if (ON_count > OFF_count) // I am more in-sync than out-of-sync
     {
       ON_longer = 0;
       OFF_longer = (sum_ON/ON_count) >> 1;
-    } 
+    }
     else if (ON_count < OFF_count) //I am more out-of-sync than in-sync
     {
       OFF_longer = 0;
       ON_longer = (sum_ON/ON_count) >> 1;
-    } 
+    }
     else if (ON_count == 0 && OFF_count == 0) //initial state...
     {
       ON_longer = 0;
       OFF_longer = 0;
-    } 
+    }
     else if (ON_count == OFF_count) //I am just plain out of phase
     {
       if (sum_ON < sum_OFF) // use a more precise method
       {
         ON_longer = 0;
         OFF_longer = (sum_ON/ON_count) >> 1;
-      } 
-      else 
+      }
+      else
       {
         OFF_longer = 0;
         ON_longer = (sum_OFF/OFF_count) >> 1;

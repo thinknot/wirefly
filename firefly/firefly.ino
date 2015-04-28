@@ -27,13 +27,81 @@ void activityLed (byte on) {
 #endif
 }
 
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+// Main loop functions, top-level / timing functions 
 
 // = = = = = = = = = = = = = = = = = = = = = = = = = = =
+void loop() {
+  //PHASE1: input
+    my_interrupt(); // note that patterns should also check for interrupts, on their own time
+  //PHASE2: communicate
+    my_send(); //send a pending message, if (msg_cmd != 0)
+  //PHASE3: display
+    runPattern();  // switches control to the active pattern
+}
+
+// = = = = = = = = = = = = = = = = = = = = = = = = = = =
+// my_interrupt()
+// Call this function whenever reasonably possible to keep network comm and serial IO going. 
+// returns the output of handleInputs()
+int my_interrupt()
+{
+    int trigger = 0;
+#ifdef DEBUG    
+    //check for serial input via handleSerialInput()
+    if (Serial.available()) {
+        handleSerialInput(Serial.read());
+        trigger = 1;
+    }
+#endif
+//  debounceInputs();
+
+    // check for network input via my_recvDone()
+    // note that my_recvDone() may alter g_pattern, if the crc is good
+    trigger |= my_recvDone();
+
+    return trigger;
+}
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+// Control functions for patterns
+
+// = = = = = = = = = = = = = = = = = = = = = = = = = = =
+// pattern_interrupt()
+// A pattern should call this function, or some equivalent of the my_interrupt()
+boolean pattern_interrupt(int current_pattern)
+{
+  //check for a change in pattern from network / serial
+  my_interrupt();
+  boolean patternChanged = (g_pattern != current_pattern);
+  
+  if (patternChanged)
+    // respond to a new pattern command
+  {
+#ifdef DEBUG
+      Serial.print("pattern_interrupt() old: ");
+      Serial.print(current_pattern);
+      Serial.print("pattern_interrupt() new: ");
+      Serial.println(g_pattern);
+#endif      
+      // request that new pattern be broadcasted to the network
+      msg_cmd = 'p';
+      msg_stack[0] = msg_value;
+      msg_sendLen = 1;
+      msg_dest = 0; //broadcast message
+  }
+
+  //report status
+  return (patternChanged);
+}
+
+// = = = = = = = = = = = = = = = = = = = = = = = = = = =
+// runPattern()
 // Pattern control switch!
 void runPattern() {
   activityLed(1);
 #ifdef DEBUG
-  Serial.print("Run pattern "); Serial.println(g_pattern);
+  Serial.print("run_pattern() "); Serial.println(g_pattern);
 #endif
 
   // Update this switch if adding a pattern! (primitive callback)
@@ -61,31 +129,26 @@ void runPattern() {
   activityLed(0);
 }
 
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-// Main loop
 // = = = = = = = = = = = = = = = = = = = = = = = = = = =
-void loop() {
-    my_interrupt(); // note that patterns should also check for interrupts, on their own time
-    runPattern();  // switches control to the active pattern
+// delay functions - // use these, don't waste cycles with delay()
+
+//poll for new inputs and break if an interrupt is detected
+void my_delay_with_break(unsigned long wait_time) {
+  unsigned long t0 = millis();
+  while( (millis() - t0) < wait_time )
+    if ( my_interrupt() ) return;
+}
+// poll for new inputs, detect interrupts but do not break the delay
+void my_delay(unsigned long wait_time) {
+  unsigned long t0 = millis();
+  while( millis() - t0 < wait_time )
+    my_interrupt();
 }
 
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 // = = = = = = = = = = = = = = = = = = = = = = = = = = =
-// Utility functions for patterns
-boolean pattern_interrupt(int current_pattern)
-{
-  my_interrupt();
-#ifdef DEBUG
-  if (g_pattern != current_pattern)
-  {
-      Serial.print("old pattern: ");
-      Serial.print(current_pattern);
-      Serial.print("   new pattern: ");
-      Serial.println(g_pattern);
-  }
-#endif
-  //we respond to a new pattern command
-  return (current_pattern != g_pattern);
-}
+// Helper functions 
+
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
 word crc16Calc (const void* ptr, byte len) {
@@ -117,49 +180,6 @@ void saveConfig () {
         showString(INITFAIL);
 }
 
-
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-// = = = = = = = = = = = = = = = = = = = = = = = = = = =
-// Helper functions 
-
-// Create a 15 bit color value from R,G,B
-unsigned int Color(uint8_t r, uint8_t g, uint8_t b)
-{
-  //Take the lowest 5 bits of each value and append them end to end
-#ifdef UPSIDE_DOWN_LEDS
-  //swap green and blue bits
-  return( ((unsigned int)b & 0x1F )<<10 | ((unsigned int)g & 0x1F)<<5 | (unsigned int)r & 0x1F);
-#else
-  return( ((unsigned int)g & 0x1F )<<10 | ((unsigned int)b & 0x1F)<<5 | (unsigned int)r & 0x1F);
-#endif
-}
-
-//Input a value 0 to 127 to get a color value.
-//The colours are a transition r - g -b - back to r
-unsigned int Wheel(byte WheelPos)
-{
-  byte r,g,b;
-  switch(WheelPos >> 5)
-  {
-  case 0:
-    r=31- WheelPos % 32;   //Red down
-    g=WheelPos % 32;      // Green up
-    b=0;                  //blue off
-    break; 
-  case 1:
-    g=31- WheelPos % 32;  //green down
-    b=WheelPos % 32;      //blue up
-    r=0;                  //red off
-    break; 
-  case 2:
-    b=31- WheelPos % 32;  //blue down 
-    r=WheelPos % 32;      //red up
-    g=0;                  //green off
-    break; 
-  }
-  return(Color(r,g,b));
-}
-
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 // = = = = = = = = = = = = = = = = = = = = = = = = = = =
 // Network communication
@@ -175,7 +195,7 @@ int my_recvDone() {
     if (rf12_recvDone()) {
 #ifdef DEBUG
         debugRecv(); //print the message if in debug mode
-#endif        
+#endif
         // if we got a bad crc, then no message was received.
         msgReceived = !rf12_crc;
         if (rf12_crc == 0) {
@@ -220,7 +240,7 @@ int my_send() {
         //do yo thang:
         activityLed(1);
 #ifdef DEBUG
-        showString(PSTR(" -> "));
+        showString(PSTR("Send -> "));
         Serial.print((char) msg_cmd); Serial.print(" ");
         Serial.print((word) msg_sendLen);
         showString(PSTR(" b\n"));
@@ -237,61 +257,6 @@ int my_send() {
         activityLed(0);
     }
   }
-}
-
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-// top-level / timing functions 
-
-// = = = = = = = = = = = = = = = = = = = = = = = = = = =
-// handleInputs()
-// returns 1 if either network or serial input was received
-int handleInputs() {
-    int trigger = 0;
-    
-    if (Serial.available()) {
-        handleSerialInput(Serial.read());
-        trigger = 1;
-    }
-
-//  debounceInputs();
-
-    // note that my_recvDone() may alter g_pattern, if the crc is good
-    trigger |= my_recvDone();
-
-#ifdef DEBUG
-    if (trigger) Serial.println(".");
-#endif
-
-    return trigger;
-}
-
-// = = = = = = = = = = = = = = = = = = = = = = = = = = =
-// my_interrupt()
-// A pattern should call this function (or some equivalent of sub-functions)
-// whenever reasonably possible to keep network comm and serial IO going. 
-// returns the output of handleInputs()
-void my_interrupt()
-{
-    handleInputs();  //check for serial input, call my_recvDone()
-    my_send(); //try to send, if (cmd != 0)
-
-    return;
-}
-
-// = = = = = = = = = = = = = = = = = = = = = = = = = = =
-// delay functions - // don't waste cycles with delay(); 
-
-//poll for new inputs and break if an interrupt is detected
-void my_delay_with_break(unsigned long wait_time) {
-  unsigned long t0 = millis();
-  while( (millis() - t0) < wait_time )
-    if ( handleInputs() ) return;
-}
-// poll for new inputs, detect interrupts but do not break the delay
-void my_delay(unsigned long wait_time) {
-  unsigned long t0 = millis();
-  while( millis() - t0 < wait_time )
-    handleInputs();
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -335,7 +300,7 @@ void setup() {
   rf12_configDump();
   df_initialize();
 
-#ifndef DEBUG    
+#ifndef DEBUG
   // turn the radio off in the most power-efficient manner
   Sleepy::loseSomeTime(32);
   rf12_sleep(RF12_SLEEP);
@@ -345,4 +310,3 @@ void setup() {
 
   randomSeed(analogRead(0));
 }
-

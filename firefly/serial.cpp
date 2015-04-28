@@ -263,17 +263,9 @@ void handleSerialInput (char c) {
             }
             break;
 */
-        case 'p': // select a new pattern (side effect: broadcast new pattern to the network)
-            //immediately change pattern, rather than wait on a network msg:
+        case 'p': // select a new pattern 
+            //immediately change pattern:
             g_pattern = msg_value;
-            //broadcast the new pattern:
-            msg_cmd = c;
-            msg_stack[0] = msg_value;
-            msg_sendLen = 1;
-            msg_dest = 0; //broadcast message
-#ifdef DEBUG
-            Serial.println("New pattern " + g_pattern);
-#endif
             break;
             
         default:

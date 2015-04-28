@@ -3,7 +3,7 @@
 
 #define MAJOR_VERSION RF12_EEPROM_VERSION // bump when EEPROM layout changes
 #define MINOR_VERSION 2                   // bump on other non-trivial changes
-#define VERSION "[Wirefly 12-2014]"
+#define VERSION "[Wirefly 04-2015]"
 #define TINY        0
 #define SERIAL_BAUD 57600   // adjust as needed
 #define DATAFLASH   0       // set to 0 for non-JeeLinks, else 4/8/16 (Mbit)
@@ -67,7 +67,7 @@ static byte msg_testCounter; //number of test packets sent
 #define GREENPIN 6      // DIO3
 #define BLUEPIN 3   // IRQ2
 //#define BLUEPIN 9   // SEL1 LedNode
-    
+
 //PortI2C myBus (3);
 //LuxPlug sensor (myBus, 0x39);
 
@@ -108,7 +108,7 @@ void handleSerialInput (char c);
 void activityLed (byte on);
 word crc16Calc (const void* ptr, byte len);
 int my_send();
-void my_interrupt();
+int my_interrupt();
 void my_delay_with_break(unsigned long wait_time);
 void my_delay(unsigned long wait_time);
 boolean pattern_interrupt(int current_pattern);
@@ -127,7 +127,6 @@ void displayVersion ();
 #endif
 
 #endif
-
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 // DataFlash code
