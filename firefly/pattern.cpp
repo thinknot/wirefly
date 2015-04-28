@@ -7,6 +7,10 @@
 #include "Arduino.h"
 #include "firefly.h"
 
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+// = = = = = = = = = = = = = = = = = = = = = = = = = = =
+// PATTERN functions begin here
+
 uint8_t g_pattern = 0;
 
 // = = = = = = = = = = = = = = = = = = = = = = = = = = =
@@ -34,6 +38,7 @@ void pattern_off() {
 // PATTERN_LUXMETER: low-power periodic monitoring 
 /*
 void pattern_luxMeter() {
+    byte highGain;
 #ifdef DEBUG
     Serial.println("Begin pattern: luxMeter. waiting for sunset");
 #endif
@@ -305,7 +310,7 @@ void pattern_rgbpulse() {
 
 // = = = = = = = = = = = = = = = = = = = = = = = = = = =
 // PATTERN_CLOCKSYNC:
-void pattern_clockSync( byte opts = 0) {
+void pattern_clockSync( ) {
 #ifdef DEBUG
     Serial.println("Begin pattern: clockSync");
 #endif                    
