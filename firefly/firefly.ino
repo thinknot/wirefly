@@ -1,11 +1,3 @@
-/// Configure some values in EEPROM for easy config of the RF12 later on.
-// 2009-05-06 <jc@wippler.nl> http://opensource.org/licenses/mit-license.php
-
-// Based on http://jeelabs.net/projects/jeelib/wiki/RF12demo
-// this version adds flash memory support, 2009-11-19
-// Adding frequency features, author JohnO, 2013-09-05
-// Major EEPROM format change, refactoring, and cleanup for v12, 2014-02-13
-
 #include <JeeLib.h>
 #include <util/crc16.h>
 #include <avr/eeprom.h>
@@ -15,12 +7,23 @@
 #include "Arduino.h"
 #include "firefly.h"
 
-static unsigned long now () {
+// Based on http://jeelabs.net/projects/jeelib/wiki/RF12demo
+// this version adds flash memory support, 2009-11-19
+// Adding frequency features, author JohnO, 2013-09-05
+// Major EEPROM format change, refactoring, and cleanup for v12, 2014-02-13
+
+static boolean needToSend;
+static MilliTimer sendTimer;
+static MilliTimer immuneTimer;
+extern byte msg_stack[RF12_MAXDATA + 4], msg_top, msg_sendLen, msg_dest;
+extern char msg_cmd;
+
+static unsigned long now() {
 	// FIXME 49-day overflow
 	return millis() / 1000;
 }
 
-void activityLed (byte on) {
+void activityLed(byte on) {
 #ifdef LED_PIN
 	pinMode(LED_PIN, OUTPUT);
 	digitalWrite(LED_PIN, !on);
@@ -33,9 +36,11 @@ void activityLed (byte on) {
 // = = = = = = = = = = = = = = = = = = = = = = = = = = =
 void loop() {
 	//PHASE1: input
-	my_interrupt(); // note that patterns should also check for interrupts, on their own time
+	my_interrupt(); // note that patterns can call pattern_interrupt(), on their own time
+
 	//PHASE2: communicate
-	my_send(); //send a pending message, if (msg_cmd != 0)
+	my_send(); //send a pending message, if (needToSend != 0)
+
 	//PHASE3: display
 	runPattern();  // switches control to the active pattern
 }
@@ -44,14 +49,13 @@ void loop() {
 // my_interrupt()
 // Call this function whenever reasonably possible to keep network comm and serial IO going. 
 // returns the output of handleInputs()
-int my_interrupt()
-{
-	int trigger = 0;
+int my_interrupt() {
+	boolean trigger = false;
 #ifdef DEBUG
 	//check for serial input via handleSerialInput()
 	if (Serial.available()) {
 		handleSerialInput(Serial.read());
-		trigger = 1;
+		trigger = true;
 	}
 #endif
 	//  debounceInputs();
@@ -59,7 +63,6 @@ int my_interrupt()
 	// check for network input via my_recvDone()
 	// note that my_recvDone() may alter g_pattern, if the crc is good
 	trigger |= my_recvDone();
-
 	return trigger;
 }
 
@@ -69,28 +72,26 @@ int my_interrupt()
 // = = = = = = = = = = = = = = = = = = = = = = = = = = =
 // pattern_interrupt()
 // A pattern should call this function, or some equivalent of the my_interrupt()
-boolean pattern_interrupt(int current_pattern)
-{
-	//check for a change in pattern from network / serial
-	my_interrupt();
+boolean pattern_interrupt(int current_pattern) {
+	//PHASE1: check for a change in pattern from network / serial
+	boolean inputReceived = my_interrupt();
 	boolean patternChanged = (g_pattern != current_pattern);
 
-	if (patternChanged)
-		// respond to a new pattern command
-	{
+	//PHASE2:
+	if (sendTimer.poll(2096))
+		needToSend = 1;
+	my_send();
+
+	if (patternChanged) {
 #ifdef DEBUG
+		// log if new pattern detected
 		Serial.print("pattern_interrupt() old: ");
 		Serial.print(current_pattern);
-		Serial.print("pattern_interrupt() new: ");
+		Serial.print(" new: ");
 		Serial.println(g_pattern);
 #endif
-		// request that new pattern be broadcasted to the network
-		msg_cmd = 'p';
-		msg_stack[0] = msg_value;
-		msg_sendLen = 1;
-		msg_dest = 0; //broadcast message
+		immuneTimer.set(16384);
 	}
-
 	//report status
 	return (patternChanged);
 }
@@ -99,13 +100,8 @@ boolean pattern_interrupt(int current_pattern)
 // runPattern()
 // Pattern control switch!
 void runPattern() {
-	activityLed(1);
-#ifdef DEBUG
-	Serial.print("run_pattern() "); Serial.println(g_pattern);
-#endif
-
 	// Update this switch if adding a pattern! (primitive callback)
-	switch( g_pattern ) {
+	switch (g_pattern) {
 	default:
 	case PATTERN_OFF:
 		pattern_off();  // all lights off, including/especially the lantern
@@ -125,8 +121,6 @@ void runPattern() {
 	case PATTERN_PULSER:
 		pattern_rgbpulse(); // more primitive rgb fader
 	}
-
-	activityLed(0);
 }
 
 // = = = = = = = = = = = = = = = = = = = = = = = = = = =
@@ -135,13 +129,14 @@ void runPattern() {
 //poll for new inputs and break if an interrupt is detected
 void my_delay_with_break(unsigned long wait_time) {
 	unsigned long t0 = millis();
-	while( (millis() - t0) < wait_time )
-		if ( my_interrupt() ) return;
+	while ((millis() - t0) < wait_time)
+		if (my_interrupt())
+			return;
 }
 // poll for new inputs, detect interrupts but do not break the delay
 void my_delay(unsigned long wait_time) {
 	unsigned long t0 = millis();
-	while( millis() - t0 < wait_time )
+	while (millis() - t0 < wait_time)
 		my_interrupt();
 }
 
@@ -151,33 +146,33 @@ void my_delay(unsigned long wait_time) {
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
-word crc16Calc (const void* ptr, byte len) {
+word crc16Calc(const void* ptr, byte len) {
 	word crc = ~0;
 	for (byte i = 0; i < len; ++i)
 		crc = _crc16_update(crc, ((const byte*) ptr)[i]);
 	return crc;
 }
 
-static void loadConfig () {
+static void loadConfig() {
 	// eeprom_read_block(&config, RF12_EEPROM_ADDR, sizeof config);
 	// this uses 166 bytes less flash than eeprom_read_block(), no idea why
-	for (byte i = 0; i < sizeof config; ++ i)
+	for (byte i = 0; i < sizeof config; ++i)
 		((byte*) &config)[i] = eeprom_read_byte(RF12_EEPROM_ADDR + i);
 }
 
-void saveConfig () {
+void saveConfig() {
 	config.format = MAJOR_VERSION;
 	config.crc = crc16Calc(&config, sizeof config - 2);
 	// eeprom_write_block(&config, RF12_EEPROM_ADDR, sizeof config);
 	// this uses 170 bytes less flash than eeprom_write_block(), no idea why
 	eeprom_write_byte(RF12_EEPROM_ADDR, ((byte*) &config)[0]);
-	for (byte i = 0; i < sizeof config; ++ i)
+	for (byte i = 0; i < sizeof config; ++i)
 		eeprom_write_byte(RF12_EEPROM_ADDR + i, ((byte*) &config)[i]);
 
 	if (rf12_configSilent())
 		rf12_configDump();
 	else
-		showString(INITFAIL);
+		showString (INITFAIL);
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -204,29 +199,27 @@ int my_recvDone() {
 			activityLed(1);
 			//ack if requested
 			if (RF12_WANTS_ACK && (config.collect_mode) == 0) {
-				showString(PSTR(" -> ack\n"));
+				showString(PSTR("Send -> ack\n"));
 				rf12_sendStart(RF12_ACK_REPLY, 0, 0);
+				rf12_sendWait(1); // don't power down too soon
 			}
-#ifdef DEBUG
-			Serial.print("rf12_len "); Serial.println(rf12_len);
-			Serial.print("rf12_data[0] "); Serial.println(rf12_data[0]);
-#endif
 			// grab the pattern that we recieve, unless no data...
-			int new_pattern = ((rf12_len > 0) ? rf12_data[0] : g_pattern);
-
-			// ...if we get a crazy clocksync ping msg, then just ignore it
-			if (msgReceived = (new_pattern != PATTERN_CLOCKSYNC_PING)) {
-				//otherwise, msgReceived is true and set the new pattern
-				g_pattern = new_pattern;
-			}
+			if (rf12_len == 1) {
+				int new_pattern = rf12_data[0];
+				// ...if we get a crazy clocksync ping msg, then just ignore it
+				if (msgReceived = (new_pattern != PATTERN_CLOCKSYNC_PING)) {
+					//otherwise, msgReceived is true and set the new pattern
+					if (!immuneTimer.poll()) {
+						g_pattern = new_pattern;
+						sendTimer.set(0);
 #ifdef DEBUG
-			Serial.print("pattern "); Serial.println(g_pattern);
+						Serial.print("my_recvDone() "); Serial.println(g_pattern);
 #endif
+					}
+				}
+			}
 			activityLed(0);
 		}
-#ifdef DEBUG
-		Serial.print("msgReceived: "); Serial.println(msgReceived);
-#endif
 	}
 	return msgReceived;
 }
@@ -234,28 +227,27 @@ int my_recvDone() {
 // = = = = = = = = = = = = = = = = = = = = = = = = = = =
 // my_send
 int my_send() {
-	if (msg_cmd) {
-		//if rf12_canSend returns 1, then you must subsequently call rf12_sendStart.
-		if (rf12_canSend()) {
-			//do yo thang:
-			activityLed(1);
+	//if rf12_canSend returns 1, then you must subsequently call rf12_sendStart.
+	if (needToSend && rf12_canSend()) {
+		activityLed(1);
+		//do yo thang:
+		msg_stack[0] = g_pattern;
+		msg_sendLen = 1;
+		msg_dest = 0; //broadcast message
 #ifdef DEBUG
-			showString(PSTR("Send -> "));
-			Serial.print((char) msg_cmd); Serial.print(" ");
-			Serial.print((word) msg_sendLen);
-			showString(PSTR(" b\n"));
+				showString(PSTR("Send -> "));
+				Serial.println((byte) msg_stack[0]);
 #endif
-			//make this an ack if requested
-			byte header = msg_cmd == 'a' ? RF12_HDR_ACK : 0;
-			// if not broadcast, set the destination node
-			if (msg_dest)
-				header |= RF12_HDR_DST | msg_dest;
-			//actually send the message
-			rf12_sendStart(header, msg_stack, msg_sendLen);
-			msg_cmd = 0;
-
-			activityLed(0);
-		}
+		//make this an ack if requested
+		byte header = msg_cmd == 'a' ? RF12_HDR_ACK : 0;
+		// if not broadcast, set the destination node
+		if (msg_dest)
+			header |= RF12_HDR_DST | msg_dest;
+		//actually send the message
+		needToSend = 0;
+		rf12_sendStart(header, msg_stack, msg_sendLen);
+		msg_cmd = 0;
+		activityLed(0);
 	}
 }
 
@@ -263,10 +255,6 @@ int my_send() {
 // Setup
 // = = = = = = = = = = = = = = = = = = = = = = = = = = =
 void setup() {
-#ifdef DEBUG
-	pinMode(A1, OUTPUT);
-#endif
-
 	if (rf12_config()) {
 		config.nodeId = eeprom_read_byte(RF12_EEPROM_ADDR);
 		config.group = eeprom_read_byte(RF12_EEPROM_ADDR + 1);
@@ -274,10 +262,11 @@ void setup() {
 #ifdef DEBUG
 	else {
 		config.nodeId = 0x41; // node A1 @ 433 MHz
-		config.group = 0xD4;  // group 212 (valid values: 0-212)
+		config.group = 0xD4;// group 212 (valid values: 0-212)
 		saveConfig();
 	}
 
+	pinMode(A1, OUTPUT);
 	Serial.begin(SERIAL_BAUD);
 	Serial.println();
 	displayVersion();
@@ -300,13 +289,6 @@ void setup() {
 	rf12_configDump();
 	df_initialize();
 
-#ifndef DEBUG
-	// turn the radio off in the most power-efficient manner
-	Sleepy::loseSomeTime(32);
-	rf12_sleep(RF12_SLEEP);
-	// wait another 2s for the power supply to settle
-	Sleepy::loseSomeTime(2000);
-#endif
-
 	randomSeed(analogRead(0));
+	sendTimer.set(0);
 }

@@ -7,6 +7,11 @@
 #include "Arduino.h"
 #include "firefly.h"
 
+static word msg_value;
+static byte msg_testCounter; //number of test packets sent
+extern byte msg_stack[RF12_MAXDATA+4], msg_top, msg_sendLen, msg_dest;
+extern char msg_cmd;
+
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 // FIXME update this help menu based on handleSerialInput()
 const char helpText1[] PROGMEM =

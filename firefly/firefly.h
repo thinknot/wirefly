@@ -1,9 +1,12 @@
 #ifndef __FIREFLY_H
 #define __FIREFLY_H
 
+/// Configure some values in EEPROM for easy config of the RF12 later on.
+// 2009-05-06 <jc@wippler.nl> http://opensource.org/licenses/mit-license.php
+
 #define MAJOR_VERSION RF12_EEPROM_VERSION // bump when EEPROM layout changes
 #define MINOR_VERSION 2                   // bump on other non-trivial changes
-#define VERSION "[Wirefly 04-2015]"
+#define VERSION "[Wirefly 05-2015]"
 #define TINY        0
 #define SERIAL_BAUD 57600   // adjust as needed
 #define DATAFLASH   0       // set to 0 for non-JeeLinks, else 4/8/16 (Mbit)
@@ -20,6 +23,12 @@ const char INITFAIL[] PROGMEM = "config save failed\n";
 // RF12 configuration setup code
 #define RF12_BUFFER_SIZE	66
 static uint8_t my_data[RF12_BUFFER_SIZE];
+static byte msg_stack[RF12_MAXDATA+4], msg_top, msg_sendLen, msg_dest;
+// cmd may be set to: [0, 'a', 'c']
+// 0   no command
+// 'a' send request ack
+// 'c' send
+static char msg_cmd;
 
 #define COLLECT 0x20 // collect mode, i.e. pass incoming without sending acks
 
@@ -42,15 +51,6 @@ typedef struct {
 } RF12Config;
 
 static RF12Config config;
-
-// cmd may be set to: [0, 'a', 'c']
-// 0   no command
-// 'a' send request ack
-// 'c' send
-static char msg_cmd;
-static word msg_value;
-static byte msg_stack[RF12_MAXDATA+4], msg_top, msg_sendLen, msg_dest;
-static byte msg_testCounter; //number of test packets sent
 
 // http://jeelabs.net/pub/docs/jeelib/classSleepy.html
 // WDT inturrupt handler, required to use Sleepy::loseSomeTime()

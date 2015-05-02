@@ -56,22 +56,9 @@ uint8_t g_pattern = 0;
 // = = = = = = = = = = = = = = = = = = = = = = = = = = =
 // PATTERN_OFF: No color value, clear LEDs
 void pattern_off() {
-	/*
-  int startIndex = (IGNORE_FRONT(opts)?PIXEL_FRONT_LAST+1:0);
-  int endIndex = (IGNORE_BACK(opts)?PIXEL_FRONT_LAST+1:strip.numPixels());
-  for(uint8_t p=startIndex; p<endIndex; p++) {
-    debounceInputs();
-    strip.setPixelColor(p,0);
-  }
-  strip.show();
-	 */
 	rgbSet(MAX_RGB_VALUE, MAX_RGB_VALUE, MAX_RGB_VALUE);
 	while (1)
-	{
-		my_delay(350);  //TODO: need to go into low power mode here instead of delay
-		//  debounceInputs();
 		if (pattern_interrupt(PATTERN_OFF)) return;
-	}
 }
 
 // = = = = = = = = = = = = = = = = = = = = = = = = = = =
@@ -151,13 +138,13 @@ void pattern_teamFirefly() {
 	Serial.println("pattern_teamFirefly()");
 #endif
 
-/*
+	/*
 MilliTimer g_sendTimer;
 byte g_needToSend;
     // check the timer for sending a network message
     if (g_sendTimer.poll(3000)) // 3 seconds
         g_needToSend = 1;
-*/
+	 */
 
 	//check with the outside world:
 	if (pattern_interrupt(PATTERN_FIREFLY)) return;
