@@ -127,16 +127,17 @@ void runPattern() {
 // delay functions - // use these, don't waste cycles with delay()
 
 //poll for new inputs and break if an interrupt is detected
-void my_delay_with_break(unsigned long wait_time) {
+int pattern_delay(unsigned long wait_time, uint8_t current_pattern) {
 	unsigned long t0 = millis();
 	while ((millis() - t0) < wait_time)
-		if (my_interrupt())
-			return;
+		if (pattern_interrupt(current_pattern))
+			return 1;
+	return 0;
 }
 // poll for new inputs, detect interrupts but do not break the delay
 void my_delay(unsigned long wait_time) {
 	unsigned long t0 = millis();
-	while (millis() - t0 < wait_time)
+	while ((millis() - t0) < wait_time)
 		my_interrupt();
 }
 

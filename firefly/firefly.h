@@ -109,7 +109,7 @@ void activityLed (byte on);
 word crc16Calc (const void* ptr, byte len);
 int my_send();
 int my_interrupt();
-void my_delay_with_break(unsigned long wait_time);
+int pattern_delay(unsigned long wait_time, uint8_t current_pattern);
 void my_delay(unsigned long wait_time);
 boolean pattern_interrupt(int current_pattern);
 void runPattern();

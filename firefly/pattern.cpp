@@ -223,14 +223,17 @@ const byte path[] =
 
 #define  MAX_PATH_SIZE  (sizeof(path)/sizeof(path[0]))  // size of the array
 
-void traverse(int dx, int dy, int dz)
+int traverse(int dx, int dy, int dz)
 // Move along the colour line from where we are to the next vertex of the cube.
 // The transition is achieved by applying the 'delta' value to the coordinate.
 // By definition all the coordinates will complete the transition at the same 
 // time as we only have one loop index.
 {
+	if (pattern_interrupt(PATTERN_FADER))
+		return 1;
+
 	if ((dx == 0) && (dy == 0) && (dz == 0))   // no point looping if we are staying in the same spot!
-		return;
+		return 0;
 
 	for (int i = 0; i < MAX_RGB_VALUE-MIN_RGB_VALUE; i++, v.x += dx, v.y += dy, v.z += dz)
 	{
@@ -239,18 +242,14 @@ void traverse(int dx, int dy, int dz)
 		analogWrite(GREENPIN, v.y);
 		analogWrite(BLUEPIN, v.z);
 
-		delay(FADE_TRANSITION_DELAY);
 		// wait for the transition delay
-
-		if (pattern_interrupt(PATTERN_FADER))
-			return;
+		if (pattern_delay(FADE_TRANSITION_DELAY, PATTERN_FADER))
+			return 1;
 	}
 
-	delay(FADE_WAIT_DELAY);
 	// give it an extra rest at the end of the traverse
-
-	if (pattern_interrupt(PATTERN_FADER))
-		return;
+	if (pattern_delay(FADE_WAIT_DELAY, PATTERN_FADER))
+		return 1;
 }
 
 void pattern_rgbFader()
@@ -267,6 +266,9 @@ void pattern_rgbFader()
 		v.y = (vertex[v2].y ? MAX_RGB_VALUE : MIN_RGB_VALUE);
 		v.z = (vertex[v2].z ? MAX_RGB_VALUE : MIN_RGB_VALUE);
 
+		if (pattern_interrupt(PATTERN_FADER))
+			return;
+
 		// Now just loop through the path, traversing from one point to the next
 		for (int i = 0; i < 2 * MAX_PATH_SIZE; i++)
 		{
@@ -277,11 +279,9 @@ void pattern_rgbFader()
 			else      // ... even number is the first element and ...
 				v2 = path[i >> 1] >> 4;  // ... the top nybble
 
-			traverse(vertex[v2].x - vertex[v1].x,
+			if (traverse(vertex[v2].x - vertex[v1].x,
 					vertex[v2].y - vertex[v1].y,
-					vertex[v2].z - vertex[v1].z);
-
-			if (pattern_interrupt(PATTERN_FADER))
+					vertex[v2].z - vertex[v1].z))
 				return;
 		}
 	}
@@ -299,38 +299,32 @@ void pattern_rgbpulse() {
 		// fade from blue to violet
 		for (r = 0; r < 256; r++) { 
 			analogWrite(REDPIN, r);
-			my_delay_with_break(PULSE_COLORSPEED);
-			if (pattern_interrupt(PATTERN_PULSER)) return;
+			if (pattern_delay(PULSE_COLORSPEED, PATTERN_PULSER)) return;
 		}
 		// fade from violet to red
 		for (b = 255; b > 0; b--) {
 			analogWrite(BLUEPIN, b);
-			my_delay_with_break(PULSE_COLORSPEED);
-			if (pattern_interrupt(PATTERN_PULSER)) return;
+			if (pattern_delay(PULSE_COLORSPEED, PATTERN_PULSER)) return;
 		}
 		// fade from red to yellow
 		for (g = 0; g < 256; g++) {
 			analogWrite(GREENPIN, g);
-			my_delay_with_break(PULSE_COLORSPEED);
-			if (pattern_interrupt(PATTERN_PULSER)) return;
+			if (pattern_delay(PULSE_COLORSPEED, PATTERN_PULSER)) return;
 		}
 		// fade from yellow to green
 		for (r = 255; r > 0; r--) {
 			analogWrite(REDPIN, r);
-			my_delay_with_break(PULSE_COLORSPEED);
-			if (pattern_interrupt(PATTERN_PULSER)) return;
+			if (pattern_delay(PULSE_COLORSPEED, PATTERN_PULSER)) return;
 		}
 		// fade from green to teal
 		for (b = 0; b < 256; b++) {
 			analogWrite(BLUEPIN, b);
-			my_delay_with_break(PULSE_COLORSPEED);
-			if (pattern_interrupt(PATTERN_PULSER)) return;
+			if (pattern_delay(PULSE_COLORSPEED, PATTERN_PULSER)) return;
 		}
 		// fade from teal to blue
 		for (g = 255; g > 0; g--) {
 			analogWrite(GREENPIN, g);
-			my_delay_with_break(PULSE_COLORSPEED);
-			if (pattern_interrupt(PATTERN_PULSER)) return;
+			if (pattern_delay(PULSE_COLORSPEED, PATTERN_PULSER)) return;
 		}
 	}
 }
