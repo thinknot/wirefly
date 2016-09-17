@@ -238,9 +238,7 @@ int traverse(int dx, int dy, int dz)
 	for (int i = 0; i < MAX_RGB_VALUE-MIN_RGB_VALUE; i++, v.x += dx, v.y += dy, v.z += dz)
 	{
 		// set the colour in the LED
-		analogWrite(REDPIN, v.x);
-		analogWrite(GREENPIN, v.y);
-		analogWrite(BLUEPIN, v.z);
+                rgbSet(v.x, v.y, v.z);
 
 		// wait for the transition delay
 		if (pattern_delay(FADE_TRANSITION_DELAY, PATTERN_FADER))
@@ -298,32 +296,32 @@ void pattern_rgbpulse() {
 	{
 		// fade from blue to violet
 		for (r = 0; r < 256; r++) { 
-			analogWrite(REDPIN, r);
+			rgbSet(r,g,b);
 			if (pattern_delay(PULSE_COLORSPEED, PATTERN_PULSER)) return;
 		}
 		// fade from violet to red
 		for (b = 255; b > 0; b--) {
-			analogWrite(BLUEPIN, b);
+			rgbSet(r,g,b);
 			if (pattern_delay(PULSE_COLORSPEED, PATTERN_PULSER)) return;
 		}
 		// fade from red to yellow
 		for (g = 0; g < 256; g++) {
-			analogWrite(GREENPIN, g);
+			rgbSet(r,g,b);
 			if (pattern_delay(PULSE_COLORSPEED, PATTERN_PULSER)) return;
 		}
 		// fade from yellow to green
 		for (r = 255; r > 0; r--) {
-			analogWrite(REDPIN, r);
+			rgbSet(r,g,b);
 			if (pattern_delay(PULSE_COLORSPEED, PATTERN_PULSER)) return;
 		}
 		// fade from green to teal
 		for (b = 0; b < 256; b++) {
-			analogWrite(BLUEPIN, b);
+			rgbSet(r,g,b);
 			if (pattern_delay(PULSE_COLORSPEED, PATTERN_PULSER)) return;
 		}
 		// fade from teal to blue
 		for (g = 255; g > 0; g--) {
-			analogWrite(GREENPIN, g);
+			rgbSet(r,g,b);
 			if (pattern_delay(PULSE_COLORSPEED, PATTERN_PULSER)) return;
 		}
 	}

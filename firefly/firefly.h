@@ -56,32 +56,47 @@ static RF12Config config;
 // WDT inturrupt handler, required to use Sleepy::loseSomeTime()
 //ISR(WDT_vect) { Sleepy::watchdogEvent(); }
 
-// Select platform features:
-//#define LUXMETER
-//#define TIMER
-//#define LED_STRIP
-//#define LED_NEOPIX
-#define LED_SUPERFLUX
-
-#define REDPIN 5        // DIO2
-#define GREENPIN 6      // DIO3
-#define BLUEPIN 3   // IRQ2
-//#define BLUEPIN 9   // SEL1 LedNode
-
-//PortI2C myBus (3);
-//LuxPlug sensor (myBus, 0x39);
+// Select at features:
+//#define LUXMETER 10
+//#define RTCTIMER 11
+#define LED_MONO 100
+//#define LED_RGB 101
+//#define LED_ADDR 102
+//#define RGB_STRIP 200
+//#define RGB_NEOPIX 201
+#define LED_SUPERFLUX 202
 
 // For PATTERN_FADER and rgbSet(): 
 // Used to adjust the limits for the LED, especially if it has a lower ON threshold
 #define  MIN_RGB_VALUE  10   // no smaller than 10. TODO add gamma correction 
 #define  MAX_RGB_VALUE  255  // no bigger than 255. (dark)
 
-static void rgbSet(byte r, byte g, byte b)
-{
+#ifdef LED_MONO
+  #define LEDPIN 5
+#endif
+#ifdef LED_RGB
+  #define REDPIN 5        // DIO2
+  #define GREENPIN 6      // DIO3
+  #define BLUEPIN 3   // IRQ2
+  //#define BLUEPIN 9   // SEL1 LedNode
+#endif
+  static void rgbSet(byte r, byte g, byte b)
+  {
+#ifdef LED_RGB
 	analogWrite(REDPIN, r);
 	analogWrite(GREENPIN, g);
 	analogWrite(BLUEPIN, b);
-}
+#endif
+#ifdef LED_MONO
+        byte x = 0.299*r + 0.587*g + 0.114*b;
+        analogWrite(LEDPIN, x);
+#endif
+  }
+
+#ifdef LUXMETER
+PortI2C myBus (3);
+LuxPlug sensor (myBus, 0x39);
+#endif
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 // = = = = = = = = = = = = = = = = = = = = = = = = = = =

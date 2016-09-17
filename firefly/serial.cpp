@@ -81,8 +81,10 @@ static void displayASCII (const byte* data, byte count) {
 
 void displayVersion () {
 	showString(PSTR(VERSION));
+#ifdef LED_RGB
 	showString(PSTR("\nBlue pin: "));
 	Serial.println(BLUEPIN);
+#endif
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
