@@ -31,14 +31,15 @@ int wirefly_interrupt() {
 #ifdef DEBUG
 	//check for serial input via handleSerialInput()
 	if (Serial.available()) {
-		handleInput(Serial.read());
+                char input = Serial.read();
+		handleInput(input);
 		trigger = true;
 	}
 #endif
 	//  debounceInputs();
 
 	// check for network input via my_recvDone()
-	// note that my_recvDone() may alter g_pattern, if the crc is good
+	// note that wirefly_recvDone() may alter wirefly_pattern, if the crc is good
 	trigger |= wirefly_recvDone();
 	return trigger;
 }
@@ -52,7 +53,7 @@ int wirefly_interrupt() {
 boolean pattern_interrupt(int current_pattern) {
 	//PHASE1: check for a change in pattern from network / serial
 	boolean inputReceived = wirefly_interrupt();
-	boolean patternChanged = (g_pattern != current_pattern);
+	boolean patternChanged = (wirefly_pattern != current_pattern);
 
 	//PHASE2:
 	if (wirefly_sendTimer.poll(2096))
@@ -65,7 +66,7 @@ boolean pattern_interrupt(int current_pattern) {
 		Serial.print("pattern_interrupt() old: ");
 		Serial.print(current_pattern);
 		Serial.print(" new: ");
-		Serial.println(g_pattern);
+		Serial.println(wirefly_pattern);
 #endif
 		wirefly_immuneTimer.set(16384);
 	}
@@ -78,13 +79,16 @@ boolean pattern_interrupt(int current_pattern) {
 // Pattern control switch!
 void pattern_run() {
 	// Update this switch if adding a pattern! (primitive callback)
-	switch (g_pattern) {
+	switch (wirefly_pattern) {
 	default:
 	case PATTERN_OFF:
 		pattern_off();  // all lights off, including/especially the lantern
 		break;
+        case PATTERN_RGBTEST:
+                pattern_testLED();
+                break;
 	case PATTERN_TWINKLE:
-		pattern_randomTwinkle();
+		pattern_randomTwinkle(); //blinks randomly at full intensity
 		break;
 	case PATTERN_FIREFLY:
 		pattern_teamFirefly(); // slowly beginning to blink together, timed tx/rx
@@ -154,10 +158,10 @@ int wirefly_recvDone() {
 				if (msgReceived = (new_pattern != PATTERN_CLOCKSYNC_PING)) {
 					//otherwise, msgReceived is true and set the new pattern
 					if (!wirefly_immuneTimer.poll()) {
-						g_pattern = new_pattern;
+						wirefly_pattern = new_pattern;
 						wirefly_sendTimer.set(0);
 #ifdef DEBUG
-						Serial.print("my_recvDone() "); Serial.println(g_pattern);
+						Serial.print("my_recvDone() "); Serial.println(wirefly_pattern);
 #endif
 					}
 				}
@@ -175,7 +179,7 @@ int wirefly_send() {
 	if (wirefly_needToSend && rf12_canSend()) {
 		activityLed(1);
 		//do yo thang:
-		wirefly_msg_stack[0] = g_pattern;
+		wirefly_msg_stack[0] = wirefly_pattern;
 		wirefly_msg_sendLen = 1;
 		wirefly_msg_dest = 0; //broadcast message
 #ifdef DEBUG
@@ -213,10 +217,9 @@ void setup() {
 	pinMode(A1, OUTPUT);
 	Serial.begin(SERIAL_BAUD);
 	Serial.println();
-	displayVersion();
 #endif
 
-	g_pattern = PATTERN_OFF;
+	wirefly_pattern = PATTERN_OFF;
 
 	if (rf12_configSilent()) {
 		loadConfig();

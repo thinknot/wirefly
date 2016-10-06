@@ -16,6 +16,7 @@ static byte wirefly_msg_stack[RF12_MAXDATA+4], wirefly_msg_top, wirefly_msg_send
 // 'a' send request ack
 // 'c' send
 static char wirefly_msg_cmd;
+static uint8_t wirefly_pattern = 0;
 
 #define COLLECT 0x20 // collect mode, i.e. pass incoming without sending acks
 
@@ -26,8 +27,8 @@ static char wirefly_msg_cmd;
 // Select at features:
 //#define LUXMETER 10
 //#define RTCTIMER 11
-#define LED_MONO 100
-//#define LED_RGB 101
+//#define LED_MONO 100
+#define LED_RGB 101
 //#define LED_ADDR 102
 //#define RGB_STRIP 200
 //#define RGB_NEOPIX 201
@@ -35,8 +36,8 @@ static char wirefly_msg_cmd;
 
 // For PATTERN_FADER and rgbSet(): 
 // Used to adjust the limits for the LED, especially if it has a lower ON threshold
-#define  MIN_RGB_VALUE  10   // no smaller than 10. TODO add gamma correction 
-#define  MAX_RGB_VALUE  255  // no bigger than 255. (dark)
+#define  MIN_RGB_VALUE  10   // no brighter than 10. TODO add gamma correction 
+#define  MAX_RGB_VALUE  255  // no darker than 255. (darkest)
 
 #ifdef LED_MONO
   #define LEDPIN 5
@@ -47,18 +48,6 @@ static char wirefly_msg_cmd;
   #define BLUEPIN 3   // IRQ2
   //#define BLUEPIN 9   // SEL1 LedNode
 #endif
-  static void rgbSet(byte r, byte g, byte b)
-  {
-#ifdef LED_RGB
-	analogWrite(REDPIN, r);
-	analogWrite(GREENPIN, g);
-	analogWrite(BLUEPIN, b);
-#endif
-#ifdef LED_MONO
-        byte x = 0.299*r + 0.587*g + 0.114*b;
-        analogWrite(LEDPIN, x);
-#endif
-  }
 
 #ifdef LUXMETER
 PortI2C myBus (3);
@@ -75,6 +64,7 @@ extern uint8_t g_pattern;
 #define PATTERN_FIREFLY         2
 #define PATTERN_FADER           3
 #define PATTERN_PULSER          4
+#define PATTERN_RGBTEST         5
 #define PATTERN_CLOCKSYNC      10
 #define PATTERN_CLOCKSYNC_PING 11
 #define PATTERN_LUXMETER       90
@@ -90,15 +80,12 @@ int pattern_delay(unsigned long wait_time, uint8_t current_pattern);
 boolean pattern_interrupt(int current_pattern);
 void pattern_run();
 void pattern_off();
+void pattern_testLED();
 void pattern_randomTwinkle();
 void pattern_teamFirefly();
 void pattern_clockSync();
 void pattern_rgbFader();
 void pattern_rgbpulse();
-
-#ifdef DEBUG
-void displayVersion ();
-#endif
 
 #endif
 

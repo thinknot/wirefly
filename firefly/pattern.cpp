@@ -6,6 +6,7 @@
 
 #include "Arduino.h"
 #include "firefly.h"
+#include "aprintf.h"
 
 /*
 // Create a 15 bit color value from R,G,B
@@ -46,12 +47,26 @@ unsigned int Wheel(byte WheelPos)
   return(Color(r,g,b));
 }
  */
+  static void rgbSet(byte r, byte g, byte b)
+  {
+#ifdef DEBUG
+        aprintf("rgbset %d %d %d\n", r, g, b);
+#endif
+#ifdef LED_RGB
+	analogWrite(REDPIN, r);
+	analogWrite(GREENPIN, g);
+	analogWrite(BLUEPIN, b);
+#endif
+#ifdef LED_MONO
+        //greyscale approximation
+        byte x = 0.299*r + 0.587*g + 0.114*b;
+        analogWrite(LEDPIN, x);
+#endif
+  }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 // = = = = = = = = = = = = = = = = = = = = = = = = = = =
 // PATTERN functions begin here
-
-uint8_t g_pattern = 0;
 
 // = = = = = = = = = = = = = = = = = = = = = = = = = = =
 // PATTERN_OFF: No color value, clear LEDs
@@ -250,6 +265,27 @@ int traverse(int dx, int dy, int dz)
 		return 1;
 }
 
+void pattern_testLED()
+{
+#ifdef DEBUG
+	Serial.println("Begin pattern: testLED rgb test");
+#endif
+	while (true) {
+                rgbSet(MAX_RGB_VALUE, 0, 0);  //red
+                pattern_delay(2000, PATTERN_RGBTEST);
+                rgbSet(0, MAX_RGB_VALUE, 0);  //green
+                pattern_delay(2000, PATTERN_RGBTEST);
+                rgbSet(0, 0, MAX_RGB_VALUE);  //blue
+                pattern_delay(2000, PATTERN_RGBTEST);
+                rgbSet(0, 0, MAX_RGB_VALUE);  //blue
+                pattern_delay(2000, PATTERN_RGBTEST);
+                rgbSet(0, 0, MAX_RGB_VALUE);  //blue
+                pattern_delay(2000, PATTERN_RGBTEST);
+
+		if (pattern_interrupt(PATTERN_RGBTEST)) return;
+	}
+}
+
 void pattern_rgbFader()
 {
 #ifdef DEBUG
@@ -388,10 +424,10 @@ void pattern_clockSync( ) {
 				//        Serial.print("rf12_data[0] "); Serial.println(rf12_data[0]);
 #endif
 				// grab any pattern that we recieve, unless no data...
-				int new_pattern = ((rf12_len > 0) ? rf12_data[0] : g_pattern);
+				int new_pattern = ((rf12_len > 0) ? rf12_data[0] : wirefly_pattern);
 				if (new_pattern != PATTERN_CLOCKSYNC_PING) {
 					//set the new pattern and bail out
-					g_pattern = new_pattern;
+					wirefly_pattern = new_pattern;
 					return;
 				}
 				// ...if we get a clocksync ping msg, then calculate
@@ -418,10 +454,10 @@ void pattern_clockSync( ) {
 				//        Serial.print("rf12_data[0] "); Serial.println(rf12_data[0]);
 #endif
 				// grab any pattern that we recieve, unless no data...
-				int new_pattern = ((rf12_len > 0) ? rf12_data[0] : g_pattern);
+				int new_pattern = ((rf12_len > 0) ? rf12_data[0] : wirefly_pattern);
 				if (new_pattern != PATTERN_CLOCKSYNC_PING) {
 					//set the new pattern and bail out
-					g_pattern = new_pattern;
+					wirefly_pattern = new_pattern;
 					return;
 				}
 				// ...if we get a clocksync ping msg, then calculate
