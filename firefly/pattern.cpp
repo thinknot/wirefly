@@ -357,7 +357,7 @@ void pattern_clockSync( ) {
 	pattern_off();
 
 	//  debounceInputs();
-	my_delay(random(0, 2001)); //make sure everyone starts at a somewhat different time
+	wirefly_delay(random(0, 2001)); //make sure everyone starts at a somewhat different time
 	//  debounceInputs();
 
 	while(true)
@@ -462,12 +462,12 @@ void pattern_clockSync( ) {
 				ON_longer = (sum_OFF/OFF_count) >> 1;
 			}
 		}
-
+/*
 		if (Serial.available()) {
-			handleSerialInput(Serial.read());
+			handleInput(Serial.read());
 			my_send();
 		}
-
+*/
 	}
 }
 

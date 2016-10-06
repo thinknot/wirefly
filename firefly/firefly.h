@@ -1,20 +1,7 @@
 #ifndef __FIREFLY_H
 #define __FIREFLY_H
 
-/// Configure some values in EEPROM for easy config of the RF12 later on.
-// 2009-05-06 <jc@wippler.nl> http://opensource.org/licenses/mit-license.php
-
-#define MAJOR_VERSION RF12_EEPROM_VERSION // bump when EEPROM layout changes
-#define MINOR_VERSION 2                   // bump on other non-trivial changes
-#define VERSION "[Wirefly 05-2015]"
-#define TINY        0
-#define SERIAL_BAUD 57600   // adjust as needed
-#define DATAFLASH   0       // set to 0 for non-JeeLinks, else 4/8/16 (Mbit)
-//#define LED_PIN     9       // activity LED, comment out to disable
-/// Save a few bytes of flash by declaring const if used more than once.
-const char INVALID1[] PROGMEM = "\rInvalid\n";
-const char INITFAIL[] PROGMEM = "config save failed\n";
-
+#define WIREFLY_VERSION "[Wirefly 10-2016]"
 // comment out below before compiling production codez!
 #define DEBUG 1
 
@@ -22,35 +9,15 @@ const char INITFAIL[] PROGMEM = "config save failed\n";
 // = = = = = = = = = = = = = = = = = = = = = = = = = = =
 // RF12 configuration setup code
 #define RF12_BUFFER_SIZE	66
-static uint8_t my_data[RF12_BUFFER_SIZE];
-static byte msg_stack[RF12_MAXDATA+4], msg_top, msg_sendLen, msg_dest;
+static uint8_t wirefly_msg_data[RF12_BUFFER_SIZE];
+static byte wirefly_msg_stack[RF12_MAXDATA+4], wirefly_msg_top, wirefly_msg_sendLen, wirefly_msg_dest;
 // cmd may be set to: [0, 'a', 'c']
 // 0   no command
 // 'a' send request ack
 // 'c' send
-static char msg_cmd;
+static char wirefly_msg_cmd;
 
 #define COLLECT 0x20 // collect mode, i.e. pass incoming without sending acks
-
-/// @details
-/// For the EEPROM layout, see http://jeelabs.net/projects/jeelib/wiki/RF12demo
-/// Useful url: http://blog.strobotics.com.au/2009/07/27/rfm12-tutorial-part-3a/
-
-// RF12 configuration area
-typedef struct {
-	byte nodeId;            // used by rf12_config, offset 0
-	byte group;             // used by rf12_config, offset 1
-	byte format;            // used by rf12_config, offset 2
-	byte hex_output   :2;   // 0 = dec, 1 = hex, 2 = hex+ascii
-	byte collect_mode :1;   // 0 = ack, 1 = don't send acks
-	byte quiet_mode   :1;   // 0 = show all, 1 = show only valid packets
-	byte spare_flags  :4;
-	word frequency_offset;  // used by rf12_config, offset 4
-	byte pad[RF12_EEPROM_SIZE-8];
-	word crc;
-} RF12Config;
-
-static RF12Config config;
 
 // http://jeelabs.net/pub/docs/jeelib/classSleepy.html
 // WDT inturrupt handler, required to use Sleepy::loseSomeTime()
@@ -116,46 +83,22 @@ extern uint8_t g_pattern;
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 // = = = = = = = = = = = = = = = = = = = = = = = = = = =
-// Function prototypes
-void saveConfig();
-void showString (PGM_P s);
-void handleSerialInput (char c);
-void activityLed (byte on);
-word crc16Calc (const void* ptr, byte len);
-int my_send();
-int my_interrupt();
+int wirefly_send();
+int wirefly_interrupt();
+void wirefly_delay(unsigned long wait_time);
 int pattern_delay(unsigned long wait_time, uint8_t current_pattern);
-void my_delay(unsigned long wait_time);
 boolean pattern_interrupt(int current_pattern);
-void runPattern();
+void pattern_run();
 void pattern_off();
 void pattern_randomTwinkle();
 void pattern_teamFirefly();
 void pattern_clockSync();
 void pattern_rgbFader();
 void pattern_rgbpulse();
-void handleSerialInput (char c);
 
 #ifdef DEBUG
-void debugRecv();
 void displayVersion ();
 #endif
 
 #endif
 
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-// DataFlash code
-
-#if DATAFLASH
-#include "dataflash.h"
-#else // DATAFLASH
-
-#define df_present() 0
-#define df_initialize()
-#define df_dump()
-#define df_replay(x,y)
-#define df_erase(x)
-#define df_wipe()
-#define df_append(x,y)
-
-#endif
