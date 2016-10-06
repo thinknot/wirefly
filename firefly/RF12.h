@@ -1,3 +1,6 @@
+#ifndef __RF12_FIREFLY_H
+#define __RF12_FIREFLY_H
+
 /// @dir RF12demo
 /// Configure some values in EEPROM for easy config of the RF12 later on.
 // 2009-05-06 <jc@wippler.nl> http://opensource.org/licenses/mit-license.php
@@ -13,6 +16,8 @@
 #include <avr/eeprom.h>
 #include <avr/pgmspace.h>
 #include <util/parity.h>
+
+#include "firefly.h"
 
 #define MAJOR_VERSION RF12_EEPROM_VERSION // bump when EEPROM layout changes
 #define MINOR_VERSION 2                   // bump on other non-trivial changes
@@ -518,6 +523,10 @@ static void handleInput (char c) {
                 showString(PSTR("erased\n"));
             }
             break;
+        case 'p': // select a new pattern
+            //immediately change pattern:
+            wirefly_pattern = value;
+            break;
 
         default:
             showHelp();
@@ -660,3 +669,4 @@ void rf12_loop () {
     }
 }
 
+#endif
