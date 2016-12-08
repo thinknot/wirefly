@@ -1,3 +1,11 @@
+//#include <PortsLCD.h>
+//#include <PortsBMP085.h>
+#include <Ports.h>
+//#include <RF69_compat.h>
+//#include <RF69_avr.h>
+//#include <RF69.h>
+//#include <RF12sio.h>
+#include <JeeLib.h>
 #include "RF12.h"
 #include "firefly.h"
 
