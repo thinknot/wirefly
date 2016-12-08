@@ -1,7 +1,7 @@
 #ifndef __FIREFLY_H
 #define __FIREFLY_H
 
-#define WIREFLY_VERSION "[Wirefly 10-2016]"
+#define WIREFLY_VERSION "[Wirefly 12-2016]"
 // comment out below before compiling production codez!
 #define DEBUG 1
 
