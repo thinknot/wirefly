@@ -144,9 +144,6 @@ int wirefly_recvDone() {
 	// rf12_recvDone() needs to be constantly called in order to recieve new transmissions.
 	// It checks to see if a packet has been received, returns true if it has
 	if (rf12_recvDone()) {
-#ifdef DEBUG
-		debugRecv(); //print the message if in debug mode
-#endif
 		// if we got a bad crc, then no message was received.
 		msgReceived = !rf12_crc;
 		if (rf12_crc == 0) {

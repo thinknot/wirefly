@@ -140,7 +140,7 @@ static void showString (PGM_P s) {
 }
 
 static void displayVersion () {
-    showString(PSTR(VERSION));
+    showString(PSTR(WIREFLY_VERSION VERSION));
 #if TINY
     showString(PSTR(" Tiny"));
 #endif
@@ -582,53 +582,6 @@ void rf12_setup () {
 #endif
 }
 
-void debugRecv()
-{
-    byte n = rf12_len;
-    if (rf12_crc == 0)
-        showString(PSTR("OK"));
-    else {
-        if (config.quiet_mode)
-            return;
-        showString(PSTR(" ?"));
-        if (n > 20) // print at most 20 bytes if crc is wrong
-            n = 20;
-    }
-    if (config.hex_output)
-        printOneChar('X');
-    if (config.group == 0) {
-        showString(PSTR(" G"));
-        showByte(rf12_grp);
-    }
-    printOneChar(' ');
-    showByte(rf12_hdr);
-    for (byte i = 0; i < n; ++i) {
-        if (!config.hex_output)
-            printOneChar(' ');
-        showByte(rf12_data[i]);
-    }
-    #if RF69_COMPAT
-    // display RSSI value after packet data
-    showString(PSTR(" ("));
-    if (config.hex_output)
-        showByte(RF69::rssi);
-    else
-        Serial.print(-(RF69::rssi>>1));
-    showString(PSTR(") "));
-    #endif
-    Serial.println();
-    
-    if (config.hex_output > 1) { // also print a line as ascii
-        showString(PSTR("ASC "));
-        if (config.group == 0) {
-            showString(PSTR(" II "));
-        }
-        printOneChar(rf12_hdr & RF12_HDR_DST ? '>' : '<');
-        printOneChar('@' + (rf12_hdr & RF12_HDR_MASK));
-        displayASCII((const byte*) rf12_data, n);
-    }
-}
-
 void rf12_loop () {
 #if TINY
     if (_receive_buffer_index)
@@ -638,7 +591,52 @@ void rf12_loop () {
         handleInput(Serial.read());
 #endif
     if (rf12_recvDone()) {
-        debugRecv();
+#ifdef DEBUG
+        byte n = rf12_len;
+        if (rf12_crc == 0)
+            showString(PSTR("OK"));
+        else {
+            if (config.quiet_mode)
+                return;
+            showString(PSTR(" ?"));
+            if (n > 20) // print at most 20 bytes if crc is wrong
+                n = 20;
+        }
+        if (config.hex_output)
+            printOneChar('X');
+        if (config.group == 0) {
+            showString(PSTR(" G"));
+            showByte(rf12_grp);
+        }
+        printOneChar(' ');
+        showByte(rf12_hdr);
+        for (byte i = 0; i < n; ++i) {
+            if (!config.hex_output)
+                printOneChar(' ');
+            showByte(rf12_data[i]);
+        }
+#if RF69_COMPAT
+        // display RSSI value after packet data
+        showString(PSTR(" ("));
+        if (config.hex_output)
+            showByte(RF69::rssi);
+        else
+            Serial.print(-(RF69::rssi>>1));
+        showString(PSTR(") "));
+#endif
+        Serial.println();
+
+        if (config.hex_output > 1) { // also print a line as ascii
+            showString(PSTR("ASC "));
+            if (config.group == 0) {
+                showString(PSTR(" II "));
+            }
+            printOneChar(rf12_hdr & RF12_HDR_DST ? '>' : '<');
+            printOneChar('@' + (rf12_hdr & RF12_HDR_MASK));
+            displayASCII((const byte*) rf12_data, n);
+        }
+#endif
+
         if (rf12_crc == 0) {
             activityLed(1);
 
