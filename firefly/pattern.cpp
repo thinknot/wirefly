@@ -29,6 +29,9 @@ int pattern_get()
 	return wirefly_pattern;
 }
 
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+// Control functions for patterns
+
 // = = = = = = = = = = = = = = = = = = = = = = = = = = =
 // runPattern()
 // Pattern control switch!
@@ -124,7 +127,7 @@ unsigned int Wheel(byte WheelPos)
 void pattern_off() {
 	rgbSet(MAX_RGB_VALUE, MAX_RGB_VALUE, MAX_RGB_VALUE);
 	while (1)
-		if (pattern_interrupt(PATTERN_OFF)) return;
+		if (wirefly_interrupt()) return;
 }
 
 // = = = = = = = = = = = = = = = = = = = = = = = = = = =
@@ -193,7 +196,7 @@ void pattern_randomTwinkle() {
 			clock_elapsed = 0; //reset
 		}
 		//check with the outside world:
-		if (pattern_interrupt(PATTERN_TWINKLE)) return;
+		if (wirefly_interrupt()) return;
 	}
 }
 
@@ -213,7 +216,7 @@ byte g_needToSend;
 	 */
 
 	//check with the outside world:
-	if (pattern_interrupt(PATTERN_FIREFLY)) return;
+	if (wirefly_interrupt()) return;
 }
 
 // = = = = = = = = = = = = = = = = = = = = = = = = = = =
@@ -295,7 +298,7 @@ int traverse(int dx, int dy, int dz)
 // By definition all the coordinates will complete the transition at the same 
 // time as we only have one loop index.
 {
-	if (pattern_interrupt(PATTERN_FADER))
+	if (wirefly_interrupt())
 		return 1;
 
 	if ((dx == 0) && (dy == 0) && (dz == 0))   // no point looping if we are staying in the same spot!
@@ -307,12 +310,12 @@ int traverse(int dx, int dy, int dz)
                 rgbSet(v.x, v.y, v.z);
 
 		// wait for the transition delay
-		if (pattern_delay(FADE_TRANSITION_DELAY, PATTERN_FADER))
+		if (wirefly_delay(FADE_TRANSITION_DELAY))
 			return 1;
 	}
 
 	// give it an extra rest at the end of the traverse
-	if (pattern_delay(FADE_WAIT_DELAY, PATTERN_FADER))
+	if (wirefly_delay(FADE_WAIT_DELAY))
 		return 1;
 }
 
@@ -323,17 +326,17 @@ void pattern_testLED()
 #endif
 	while (true) {
                 rgbSet(MAX_RGB_VALUE, 0, 0);  //red
-                pattern_delay(2000, PATTERN_RGBTEST);
+                wirefly_delay(2000);
                 rgbSet(0, MAX_RGB_VALUE, 0);  //green
-                pattern_delay(2000, PATTERN_RGBTEST);
+				wirefly_delay(2000);
                 rgbSet(0, 0, MAX_RGB_VALUE);  //blue
-                pattern_delay(2000, PATTERN_RGBTEST);
+				wirefly_delay(2000);
                 rgbSet(0, 0, MAX_RGB_VALUE);  //blue
-                pattern_delay(2000, PATTERN_RGBTEST);
+				wirefly_delay(2000);
                 rgbSet(0, 0, MAX_RGB_VALUE);  //blue
-                pattern_delay(2000, PATTERN_RGBTEST);
+				wirefly_delay(2000);
 
-		if (pattern_interrupt(PATTERN_RGBTEST)) return;
+		if (wirefly_interrupt()) return;
 	}
 }
 
@@ -351,7 +354,7 @@ void pattern_rgbFader()
 		v.y = (vertex[v2].y ? MAX_RGB_VALUE : MIN_RGB_VALUE);
 		v.z = (vertex[v2].z ? MAX_RGB_VALUE : MIN_RGB_VALUE);
 
-		if (pattern_interrupt(PATTERN_FADER))
+		if (wirefly_interrupt())
 			return;
 
 		// Now just loop through the path, traversing from one point to the next
@@ -384,32 +387,32 @@ void pattern_rgbpulse() {
 		// fade from blue to violet
 		for (r = 0; r < 256; r++) { 
 			rgbSet(r,g,b);
-			if (pattern_delay(PULSE_COLORSPEED, PATTERN_PULSER)) return;
+			if (wirefly_delay(PULSE_COLORSPEED)) return;
 		}
 		// fade from violet to red
 		for (b = 255; b > 0; b--) {
 			rgbSet(r,g,b);
-			if (pattern_delay(PULSE_COLORSPEED, PATTERN_PULSER)) return;
+			if (wirefly_delay(PULSE_COLORSPEED)) return;
 		}
 		// fade from red to yellow
 		for (g = 0; g < 256; g++) {
 			rgbSet(r,g,b);
-			if (pattern_delay(PULSE_COLORSPEED, PATTERN_PULSER)) return;
+			if (wirefly_delay(PULSE_COLORSPEED)) return;
 		}
 		// fade from yellow to green
 		for (r = 255; r > 0; r--) {
 			rgbSet(r,g,b);
-			if (pattern_delay(PULSE_COLORSPEED, PATTERN_PULSER)) return;
+			if (wirefly_delay(PULSE_COLORSPEED)) return;
 		}
 		// fade from green to teal
 		for (b = 0; b < 256; b++) {
 			rgbSet(r,g,b);
-			if (pattern_delay(PULSE_COLORSPEED, PATTERN_PULSER)) return;
+			if (wirefly_delay(PULSE_COLORSPEED)) return;
 		}
 		// fade from teal to blue
 		for (g = 255; g > 0; g--) {
 			rgbSet(r,g,b);
-			if (pattern_delay(PULSE_COLORSPEED, PATTERN_PULSER)) return;
+			if (wirefly_delay(PULSE_COLORSPEED)) return;
 		}
 	}
 }
@@ -422,7 +425,6 @@ void pattern_clockSync( ) {
 #endif
 	// rf12b-calibrated, about the time it takes to send a packet in milliseconds
 	unsigned long time_cycle = 750;
-	//  unsigned long time_on = 750; //experimental
 
 	// loop variables use to keep track of how long to listen
 	unsigned long time_start = 0;
@@ -454,13 +456,14 @@ void pattern_clockSync( ) {
 		sum_ON = 0;
 		OFF_count = 0;
 
-		//Phase1
+		//Phase1 LED on, send ping
 		rgbSet(123,123,123); //turn LED on
 
 		//transmit a packet, while the LED is on
 		if (rf12_canSend()) {
-			uint8_t send_data = PATTERN_CLOCKSYNC_PING;
-			rf12_sendStart(0, &send_data, 1);
+			wirefly_msg_stack[0] = WIREFLY_SEND_CLOCKSYNC;
+			wirefly_msg_stack[1] = 0;
+			rf12_sendStart(0, wirefly_msg_stack, 2);
 		}
 		//welcome back from radio land
 
@@ -474,15 +477,8 @@ void pattern_clockSync( ) {
 				//        Serial.print("rf12_len "); Serial.println(rf12_len);
 				//        Serial.print("rf12_data[0] "); Serial.println(rf12_data[0]);
 #endif
-				// grab any pattern that we recieve, unless no data...
-				int new_pattern = ((rf12_len > 0) ? rf12_data[0] : wirefly_pattern);
-				if (new_pattern != PATTERN_CLOCKSYNC_PING) {
-					//set the new pattern and bail out
-					wirefly_pattern = new_pattern;
-					return;
-				}
+				if (rf12_data[0] == WIREFLY_SEND_CLOCKSYNC) 
 				// ...if we get a clocksync ping msg, then calculate
-				else
 				{
 					//this means somebody else is on at the same time as me, keep track
 					sum_ON += millis() - time_start;
@@ -491,7 +487,7 @@ void pattern_clockSync( ) {
 			}
 		}
 
-		//Phase2
+		//Phase2 LED off
 		rgbSet(MAX_RGB_VALUE, MAX_RGB_VALUE, MAX_RGB_VALUE); //turn LED off
 
 		time_start = millis(); //reset start time to now
@@ -504,15 +500,8 @@ void pattern_clockSync( ) {
 				//        Serial.print("rf12_len "); Serial.println(rf12_len);
 				//        Serial.print("rf12_data[0] "); Serial.println(rf12_data[0]);
 #endif
-				// grab any pattern that we recieve, unless no data...
-				int new_pattern = ((rf12_len > 0) ? rf12_data[0] : wirefly_pattern);
-				if (new_pattern != PATTERN_CLOCKSYNC_PING) {
-					//set the new pattern and bail out
-					wirefly_pattern = new_pattern;
-					return;
-				}
+				if (rf12_data[0] == WIREFLY_SEND_CLOCKSYNC)
 				// ...if we get a clocksync ping msg, then calculate
-				else
 				{
 					//this means somebody else is on when I am off, keep track
 					sum_OFF += time_end - millis(); 
@@ -521,6 +510,7 @@ void pattern_clockSync( ) {
 			}
 		}
 
+		//Phase3 make some decisions
 		if (ON_count > OFF_count) // I am more in-sync than out-of-sync
 		{
 			ON_longer = 0;
@@ -549,12 +539,9 @@ void pattern_clockSync( ) {
 				ON_longer = (sum_OFF/OFF_count) >> 1;
 			}
 		}
-/*
-		if (Serial.available()) {
-			handleInput(Serial.read());
-			my_send();
-		}
-*/
+
+		if (wirefly_interrupt() && pattern_get() != PATTERN_CLOCKSYNC)
+			return;
 	}
 }
 

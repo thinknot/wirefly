@@ -1,7 +1,7 @@
 #ifndef __FIREFLY_H
 #define __FIREFLY_H
 
-#define WIREFLY_VERSION "[Wirefly 01-2017]"
+#define WIREFLY_VERSION "[Wirefly 08-2017]"
 // comment out below before compiling production codez!
 #define DEBUG 1
 
@@ -55,6 +55,12 @@ LuxPlug sensor (myBus, 0x39);
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 // = = = = = = = = = = = = = = = = = = = = = = = = = = =
+// Network messages
+#define WIREFLY_SEND_PATTERN    2
+#define WIREFLY_SEND_CLOCKSYNC  10
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+// = = = = = = = = = = = = = = = = = = = = = = = = = = =
 // Pattern control, pattern variables
 
 #define PATTERN_OFF             0
@@ -64,7 +70,6 @@ LuxPlug sensor (myBus, 0x39);
 #define PATTERN_PULSER          4
 #define PATTERN_RGBTEST         5
 #define PATTERN_CLOCKSYNC      10
-#define PATTERN_CLOCKSYNC_PING 11
 #define PATTERN_LUXMETER       90
 
 #define PULSE_COLORSPEED 5     // For PATTERN_PULSE, make this higher to slow down
@@ -73,9 +78,7 @@ LuxPlug sensor (myBus, 0x39);
 // = = = = = = = = = = = = = = = = = = = = = = = = = = =
 int wirefly_send();
 int wirefly_interrupt();
-void wirefly_delay(unsigned long wait_time);
-int pattern_delay(unsigned long wait_time, uint8_t current_pattern);
-boolean pattern_interrupt(int current_pattern);
+boolean wirefly_delay(unsigned long wait_time);
 void pattern_run();
 void pattern_off();
 void pattern_set(int value);

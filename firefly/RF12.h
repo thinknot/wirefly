@@ -31,7 +31,7 @@
 #define rf12_configDump()   // disabled
 #else
 #define TINY        0
-#define SERIAL_BAUD 57600   // adjust as needed
+#define SERIAL_BAUD 112500   // adjust as needed
 #define DATAFLASH   0       // set to 0 for non-JeeLinks, else 4/8/16 (Mbit)
 #define LED_PIN     9       // activity LED, comment out to disable
 #endif
@@ -525,7 +525,7 @@ static void handleInput (char c) {
             break;
         case 'p': // select a new pattern
             //immediately change pattern:
-            wirefly_pattern = value;
+            pattern_set(value);
             break;
 
         default:

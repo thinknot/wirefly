@@ -12,15 +12,17 @@
 // Based on http://jeelabs.net/projects/jeelib/wiki/RF12demo
 
 static boolean wirefly_needToSend;
-static MilliTimer wirefly_sendTimer;
-static MilliTimer wirefly_immuneTimer;
+static MilliTimer wirefly_sendTimer; //broadcast the pattern on this interval
+static int WIREFLY_TIMER_BROADCAST = 4096;
+static MilliTimer pattern_immuneTimer; //stop listening after pattern change
+static int WIREFLY_TIMER_IMMUNE = 16384;
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 // Main loop functions, top-level / timing functions 
 
 // = = = = = = = = = = = = = = = = = = = = = = = = = = =
 void loop() {
-	//PHASE1: input
+	//PHASE1: input, listen
 	wirefly_interrupt(); // note that patterns can call pattern_interrupt(), on their own time
 
 	//PHASE2: communicate
@@ -31,149 +33,124 @@ void loop() {
 }
 
 // = = = = = = = = = = = = = = = = = = = = = = = = = = =
-// my_interrupt()
-// Call this function whenever reasonably possible to keep network comm and serial IO going. 
-// returns the output of handleInputs()
+// wirefly_interrupt()
+// Call this function whenever reasonably possible to keep network comm and serial I/O going.
+// returns true if input of any kind was received
 int wirefly_interrupt() {
-	boolean trigger = false;
+	boolean inputReceived = false;
+	int current_pattern = pattern_get();
 #ifdef DEBUG
-	//check for serial input via handleSerialInput()
+	//check for serial commands via handleSerialInput()
 	if (Serial.available()) {
-                char input = Serial.read();
+        char input = Serial.read();
 		handleInput(input);
-		trigger = true;
+		inputReceived = true;
 	}
 #endif
 	//  debounceInputs();
 
-	// check for network input via my_recvDone()
-	// note that wirefly_recvDone() may alter wirefly_pattern, if the crc is good
-	trigger |= wirefly_recvDone();
-	return trigger;
-}
-
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-// Control functions for patterns
-
-// = = = = = = = = = = = = = = = = = = = = = = = = = = =
-// pattern_interrupt()
-// A pattern should call this function, or some equivalent of the my_interrupt()
-boolean pattern_interrupt(int current_pattern) {
-	//PHASE1: check for a change in pattern from network / serial
-	boolean inputReceived = wirefly_interrupt();
+	// check for network input via rf12_recvDone()
+	if (inputReceived |= wirefly_recvDone())
+	{
+		// check for the pattern data and grab it
+		if (rf12_data[0] == WIREFLY_SEND_PATTERN && !pattern_immuneTimer.poll())
+		{
+			int new_pattern = rf12_data[1];
+			//set the new pattern
+			pattern_set(new_pattern);
+		}
+	}
+	//check to see if either serial or network changed the pattern
 	boolean patternChanged = (pattern_get() != current_pattern);
-
-	//PHASE2:
-	if (wirefly_sendTimer.poll(2096))
-		wirefly_needToSend = 1;
-	wirefly_send();
-
 	if (patternChanged) {
 #ifdef DEBUG
 		// log if new pattern detected
-		Serial.print("pattern_interrupt() old: ");
+		Serial.print("wirefly_interrupt() old pattern: ");
 		Serial.print(current_pattern);
-		Serial.print(" new: ");
+		Serial.print("  new: ");
 		Serial.println(pattern_get());
 #endif
-		wirefly_immuneTimer.set(16384);
+		pattern_immuneTimer.set(WIREFLY_TIMER_IMMUNE); //don't listen for a little while
+		wirefly_sendTimer.set(0); //we want to send a message quickly
 	}
-	//report status
-	return (patternChanged);
-}
 
+	return (inputReceived || patternChanged);
+}
 
 // = = = = = = = = = = = = = = = = = = = = = = = = = = =
-// delay functions - // use these, don't waste cycles with delay()
-
-//poll for new inputs and break if an interrupt is detected
-int pattern_delay(unsigned long wait_time, uint8_t current_pattern) {
+// delay function - // use these, don't waste cycles with delay()
+// poll for new inputs and break if an interrupt is detected
+boolean wirefly_delay(unsigned long wait_time) {
 	unsigned long t0 = millis();
 	while ((millis() - t0) < wait_time)
-		if (pattern_interrupt(current_pattern))
-			return 1;
-	return 0;
+		if (wirefly_interrupt())
+			return false;
+	return true;
 }
-// poll for new inputs, detect interrupts but do not break the delay
-void wirefly_delay(unsigned long wait_time) {
-	unsigned long t0 = millis();
-	while ((millis() - t0) < wait_time)
-		wirefly_interrupt();
-}
-
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 // = = = = = = = = = = = = = = = = = = = = = = = = = = =
-// Network communication
+// RF12 Network communication
 
 // = = = = = = = = = = = = = = = = = = = = = = = = = = =
-// my_recvDone
+// wirefly_recvDone
 // returns 1 if a message was received successfully
 int wirefly_recvDone() {
-	int msgReceived = 0;
-	// (receive a network message if one exists; keep the RF12 library happy)
-	// rf12_recvDone() needs to be constantly called in order to recieve new transmissions.
-	// It checks to see if a packet has been received, returns true if it has
-	if (rf12_recvDone()) {
-		// if we got a bad crc, then no message was received.
-		msgReceived = !rf12_crc;
-		if (rf12_crc == 0) {
-			// If a new transmission comes in and CRC is ok, don't poll recv state again -
-			// otherwise rf12_crc, rf12_len, and rf12_data will be reset.
-			activityLed(1);
-			//ack if requested
-			if (RF12_WANTS_ACK && (config.collect_mode) == 0) {
-				showString(PSTR("Send -> ack\n"));
-				rf12_sendStart(RF12_ACK_REPLY, 0, 0);
-				rf12_sendWait(1); // don't power down too soon
-			}
-			// grab the pattern that we recieve, unless no data...
-			if (rf12_len == 1) {
-				int new_pattern = rf12_data[0];
-				// ...if we get a crazy clocksync ping msg, then just ignore it
-				if (msgReceived = (new_pattern != PATTERN_CLOCKSYNC_PING)) {
-					//otherwise, msgReceived is true and set the new pattern
-					if (!wirefly_immuneTimer.poll()) {
-						pattern_set(new_pattern);
-						wirefly_sendTimer.set(0);
-#ifdef DEBUG
-						Serial.print("my_recvDone() "); Serial.println(pattern_get());
-#endif
-					}
-				}
-			}
-			activityLed(0);
-		}
-	}
-	return msgReceived;
+  int msgReceived = 0;
+  // (receive a network message if one exists; keep the RF12 library happy)
+  // rf12_recvDone() needs to be constantly called in order to recieve new transmissions.
+  // It checks to see if a packet has been received, returns true if it has
+  if (rf12_recvDone()) {
+    // if we got a bad crc, then no message was received.
+    msgReceived = !rf12_crc;
+    if (rf12_crc == 0) {
+      // If a new transmission comes in and CRC is ok, don't poll recv state again -
+      // otherwise rf12_crc, rf12_len, and rf12_data will be reset.
+      activityLed(1);
+      //ack if requested
+      if (RF12_WANTS_ACK && (config.collect_mode) == 0) {
+        showString(PSTR("Send -> ack\n"));
+        rf12_sendStart(RF12_ACK_REPLY, 0, 0);
+        rf12_sendWait(1); // don't power down too soon
+      }
+      activityLed(0);
+    }
+  }
+  return msgReceived;
 }
 
 // = = = = = = = = = = = = = = = = = = = = = = = = = = =
-// my_send
+// wirefly_send
+// Call this a lot, it will decide whether to send the broadcast or not.
 int wirefly_send() {
-	//if rf12_canSend returns 1, then you must subsequently call rf12_sendStart.
-	if (wirefly_needToSend && rf12_canSend()) {
-		activityLed(1);
-		//do yo thang:
-		wirefly_msg_stack[0] = pattern_get();
-		wirefly_msg_sendLen = 1;
-		wirefly_msg_dest = 0; //broadcast message
+	// every four seconds
+	if (wirefly_sendTimer.poll(WIREFLY_TIMER_BROADCAST))
+		wirefly_needToSend = 1;
+  //if rf12_canSend returns 1, then you must subsequently call rf12_sendStart.
+  if (wirefly_needToSend && rf12_canSend()) {
+    activityLed(1);
+    //do yo thang:
+	wirefly_msg_stack[0] = WIREFLY_SEND_PATTERN;
+    wirefly_msg_stack[1] = pattern_get(); //send the pattern as integer
+    wirefly_msg_sendLen = 2;
+    wirefly_msg_dest = 0; //broadcast message
 #ifdef DEBUG
-				showString(PSTR("Send -> "));
-				Serial.println((byte) wirefly_msg_stack[0]);
+        showString(PSTR("Send -> "));
+        Serial.println((byte) wirefly_msg_stack[0]);
 #endif
-		//make this an ack if requested
-		byte header = wirefly_msg_cmd == 'a' ? RF12_HDR_ACK : 0;
-		// if not broadcast, set the destination node
-		if (wirefly_msg_dest)
-			header |= RF12_HDR_DST | wirefly_msg_dest;
-		//actually send the message
-		wirefly_needToSend = 0;
-		rf12_sendStart(header, wirefly_msg_stack, wirefly_msg_sendLen);
-		wirefly_msg_cmd = 0;
-		activityLed(0);
-	}
+    //make this an ack if requested
+    byte header = wirefly_msg_cmd == 'a' ? RF12_HDR_ACK : 0;
+    // if not broadcast, set the destination node
+    if (wirefly_msg_dest)
+      header |= RF12_HDR_DST | wirefly_msg_dest;
+    //actually send the message
+    wirefly_needToSend = 0;
+    rf12_sendStart(header, wirefly_msg_stack, wirefly_msg_sendLen);
+    wirefly_msg_cmd = 0;
+    activityLed(0);
+  }
 }
+
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 // Setup
@@ -213,5 +190,5 @@ void setup() {
 	df_initialize();
 
 	randomSeed(analogRead(0));
-	wirefly_sendTimer.set(0);
+	wirefly_sendTimer.set(0); //we want to send a message quickly
 }
