@@ -16,7 +16,6 @@ static byte wirefly_msg_stack[RF12_MAXDATA+4], wirefly_msg_top, wirefly_msg_send
 // 'a' send request ack
 // 'c' send
 static char wirefly_msg_cmd;
-static uint8_t wirefly_pattern = 0;
 
 #define COLLECT 0x20 // collect mode, i.e. pass incoming without sending acks
 
@@ -57,7 +56,6 @@ LuxPlug sensor (myBus, 0x39);
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 // = = = = = = = = = = = = = = = = = = = = = = = = = = =
 // Pattern control, pattern variables
-extern uint8_t g_pattern;
 
 #define PATTERN_OFF             0
 #define PATTERN_TWINKLE         1
@@ -80,12 +78,8 @@ int pattern_delay(unsigned long wait_time, uint8_t current_pattern);
 boolean pattern_interrupt(int current_pattern);
 void pattern_run();
 void pattern_off();
-void pattern_testLED();
-void pattern_randomTwinkle();
-void pattern_teamFirefly();
-void pattern_clockSync();
-void pattern_rgbFader();
-void pattern_rgbpulse();
+void pattern_set(int value);
+int pattern_get();
 
 #endif
 

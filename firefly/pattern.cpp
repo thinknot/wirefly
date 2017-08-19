@@ -8,6 +8,57 @@
 #include "firefly.h"
 #include "aprintf.h"
 
+static uint8_t wirefly_pattern = 0;
+
+
+void pattern_testLED();
+void pattern_randomTwinkle();
+void pattern_teamFirefly();
+void pattern_clockSync();
+void pattern_rgbFader();
+void pattern_rgbpulse();
+
+
+void pattern_set(int value)
+{
+	wirefly_pattern = value;
+}
+
+int pattern_get()
+{
+	return wirefly_pattern;
+}
+
+// = = = = = = = = = = = = = = = = = = = = = = = = = = =
+// runPattern()
+// Pattern control switch!
+void pattern_run() {
+	// Update this switch if adding a pattern! (primitive callback)
+	switch (wirefly_pattern) {
+	default:
+	case PATTERN_OFF:
+		pattern_off();  // all lights off, including/especially the lantern
+		break;
+	case PATTERN_RGBTEST:
+		pattern_testLED();
+		break;
+	case PATTERN_TWINKLE:
+		pattern_randomTwinkle(); //blinks randomly at full intensity
+		break;
+	case PATTERN_FIREFLY:
+		pattern_teamFirefly(); // slowly beginning to blink together, timed tx/rx
+		break;
+	case PATTERN_CLOCKSYNC:
+		pattern_clockSync();  // synchronizing firefly lanterns
+		break;
+	case PATTERN_FADER:
+		pattern_rgbFader(); // rgb fading in 3-space. matrix math is fun
+		break;
+	case PATTERN_PULSER:
+		pattern_rgbpulse(); // more primitive rgb fader
+	}
+}
+
 /*
 // Create a 15 bit color value from R,G,B
 unsigned int Color(uint8_t r, uint8_t g, uint8_t b)
