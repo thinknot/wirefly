@@ -1,6 +1,8 @@
 #ifndef __RF12_FIREFLY_H
 #define __RF12_FIREFLY_H
 
+// Based on http://jeelabs.net/projects/jeelib/wiki/RF12demo
+
 /// @dir RF12demo
 /// Configure some values in EEPROM for easy config of the RF12 later on.
 // 2009-05-06 <jc@wippler.nl> http://opensource.org/licenses/mit-license.php

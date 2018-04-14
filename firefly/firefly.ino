@@ -1,15 +1,22 @@
-//#include <PortsLCD.h>
-//#include <PortsBMP085.h>
 #include <Ports.h>
-//#include <RF69_compat.h>
-//#include <RF69_avr.h>
-//#include <RF69.h>
-//#include <RF12sio.h>
 #include <JeeLib.h>
 #include "RF12.h"
 #include "firefly.h"
 
-// Based on http://jeelabs.net/projects/jeelib/wiki/RF12demo
+/*                 JeeNode / JeeNode USB / JeeSMD
+ -------|-----------------------|----|-----------------------|----
+|       |D3  A1 [Port2]  D5     |    |D3  A0 [port1]  D4     |    |
+|-------|IRQ AIO +3V GND DIO PWR|    |IRQ AIO +3V GND DIO PWR|    |
+| D1|TXD|                                           ---- ----     |
+| A5|SCL|                                       D12|MISO|+3v |    |
+| A4|SDA|   Atmel Atmega 328                    D13|SCK |MOSI|D11 |
+|   |PWR|   JeeNode / JeeNode USB / JeeSMD         |RST |GND |    |
+|   |GND|                                       D8 |BO  |B1  |D9  |
+| D0|RXD|                                           ---- ----     |
+|-------|PWR DIO GND +3V AIO IRQ|    |PWR DIO GND +3V AIO IRQ|    |
+|       |    D6 [Port3]  A2  D3 |    |    D7 [Port4]  A3  D3 |    |
+ -------|-----------------------|----|-----------------------|----
+*/
 
 static boolean wirefly_needToSend;
 static MilliTimer wirefly_sendTimer; //broadcast the pattern on this interval
@@ -37,20 +44,18 @@ void loop() {
 // Call this function whenever reasonably possible to keep network comm and serial I/O going.
 // returns true if input of any kind was received
 int wirefly_interrupt() {
-	boolean inputReceived = false;
 	int current_pattern = pattern_get();
-#ifdef DEBUG
-	//check for serial commands via handleSerialInput()
-	if (Serial.available()) {
-        char input = Serial.read();
-		handleInput(input);
-		inputReceived = true;
-	}
+  //first check for serial input / commands
+#if TINY
+    if (_receive_buffer_index)
+        handleInput(inChar());
+#else
+    if (Serial.available())
+        handleInput(Serial.read());
 #endif
-	//  debounceInputs();
 
 	// check for network input via rf12_recvDone()
-	if (inputReceived |= wirefly_recvDone())
+	if (wirefly_recvDone())
 	{
 		// check for the pattern data and grab it
 		if (rf12_data[0] == WIREFLY_SEND_PATTERN && !pattern_immuneTimer.poll())
@@ -74,7 +79,7 @@ int wirefly_interrupt() {
 		wirefly_sendTimer.set(0); //we want to send a message quickly
 	}
 
-	return (inputReceived || patternChanged);
+	return patternChanged;
 }
 
 // = = = = = = = = = = = = = = = = = = = = = = = = = = =
@@ -101,9 +106,11 @@ int wirefly_recvDone() {
   // rf12_recvDone() needs to be constantly called in order to recieve new transmissions.
   // It checks to see if a packet has been received, returns true if it has
   if (rf12_recvDone()) {
+    byte n = rf12_len;
     // if we got a bad crc, then no message was received.
     msgReceived = !rf12_crc;
     if (rf12_crc == 0) {
+      showString(PSTR("OK"));
       // If a new transmission comes in and CRC is ok, don't poll recv state again -
       // otherwise rf12_crc, rf12_len, and rf12_data will be reset.
       activityLed(1);
@@ -114,6 +121,13 @@ int wirefly_recvDone() {
         rf12_sendWait(1); // don't power down too soon
       }
       activityLed(0);
+    }
+    else {
+        if (config.quiet_mode)
+            return msgReceived;
+        showString(PSTR(" ?"));
+        if (n > 20) // print at most 20 bytes if crc is wrong
+            n = 20;
     }
   }
   return msgReceived;
@@ -130,20 +144,20 @@ int wirefly_send() {
   if (wirefly_needToSend && rf12_canSend()) {
     activityLed(1);
     //do yo thang:
-	wirefly_msg_stack[0] = WIREFLY_SEND_PATTERN;
+    wirefly_msg_stack[0] = WIREFLY_SEND_PATTERN;
     wirefly_msg_stack[1] = pattern_get(); //send the pattern as integer
     wirefly_msg_sendLen = 2;
     wirefly_msg_dest = 0; //broadcast message
 #ifdef DEBUG
-        showString(PSTR("Send -> "));
-        Serial.println((byte) wirefly_msg_stack[0]);
+    showString(PSTR("Send -> "));
+    Serial.println((byte) wirefly_msg_stack[0]);
 #endif
     //make this an ack if requested
     byte header = wirefly_msg_cmd == 'a' ? RF12_HDR_ACK : 0;
     // if not broadcast, set the destination node
     if (wirefly_msg_dest)
-      header |= RF12_HDR_DST | wirefly_msg_dest;
-    //actually send the message
+        header |= RF12_HDR_DST | wirefly_msg_dest;
+    //actually send the message:
     wirefly_needToSend = 0;
     rf12_sendStart(header, wirefly_msg_stack, wirefly_msg_sendLen);
     wirefly_msg_cmd = 0;
@@ -156,39 +170,14 @@ int wirefly_send() {
 // Setup
 // = = = = = = = = = = = = = = = = = = = = = = = = = = =
 void setup() {
-	if (rf12_config()) {
-		config.nodeId = eeprom_read_byte(RF12_EEPROM_ADDR);
-		config.group = eeprom_read_byte(RF12_EEPROM_ADDR + 1);
-	}
-#ifdef DEBUG
-	else {
-		config.nodeId = 0x41; // node A1 @ 433 MHz
-		config.group = 0xD4;// group 212 (valid values: 0-212)
-		saveConfig();
-	}
-
-	pinMode(A1, OUTPUT);
-	Serial.begin(SERIAL_BAUD);
-	Serial.println();
-#endif
+  rf12_setup();
 
 	pattern_set(PATTERN_OFF);
 
-	if (rf12_configSilent()) {
-		loadConfig();
-	} else {
-		memset(&config, 0, sizeof config);
-		config.nodeId = 0x81;       // 868 MHz, node 1
-		config.group = 0xD4;        // default group 212
-		config.frequency_offset = 1600;
-		config.quiet_mode = true;   // Default flags, quiet on
-		saveConfig();
-		rf12_configSilent();
-	}
-
-	rf12_configDump();
-	df_initialize();
-
 	randomSeed(analogRead(0));
 	wirefly_sendTimer.set(0); //we want to send a message quickly
+
+  //set the AIO pin on the jeeNode to be an output pin
+  pinMode(A1, OUTPUT);
 }
+
