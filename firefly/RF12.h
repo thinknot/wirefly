@@ -567,7 +567,7 @@ void rf12_setup () {
         loadConfig();
     } else {
         memset(&config, 0, sizeof config);
-        config.nodeId = 0x81;       // 868 MHz, node 1
+        config.nodeId = 0x41;       // 433 MHz, node 1
         config.group = 0xD4;        // default group 212
         config.frequency_offset = 1600;
         config.quiet_mode = true;   // Default flags, quiet on
@@ -636,7 +636,6 @@ void rf12_loop () {
             displayASCII((const byte*) rf12_data, n);
         }
 #endif
-
         if (rf12_crc == 0) {
             activityLed(1);
 
@@ -666,5 +665,4 @@ void rf12_loop () {
         activityLed(0);
     }
 }
-
 #endif
