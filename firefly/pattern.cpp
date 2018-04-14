@@ -103,7 +103,7 @@ unsigned int Wheel(byte WheelPos)
  */
   static void rgbSet(byte r, byte g, byte b)
   {
-#ifdef DEBUG
+#ifdef SERIAL_DEBUG
         aprintf("rgbset %d %d %d\n", r, g, b);
 #endif
 #ifdef LED_RGB
@@ -135,7 +135,7 @@ void pattern_off() {
 /*
 void pattern_luxMeter() {
     byte highGain;
-#ifdef DEBUG
+#ifdef SERIAL_DEBUG
     Serial.println("Begin pattern: luxMeter. waiting for sunset");
 #endif
   while (true) {
@@ -162,7 +162,7 @@ void pattern_luxMeter() {
 // = = = = = = = = = = = = = = = = = = = = = = = = = = =
 // PATTERN_TWINKLE:
 void pattern_randomTwinkle() {
-#ifdef DEBUG
+#ifdef SERIAL_DEBUG
 	Serial.println("pattern_randomTwinkle()");
 #endif
 	int lantern_on = 0; // LED 1 = enabled, 0 = disabled
@@ -203,7 +203,7 @@ void pattern_randomTwinkle() {
 // = = = = = = = = = = = = = = = = = = = = = = = = = = =
 // PATTERN_FIREFLY:
 void pattern_teamFirefly() {
-#ifdef DEBUG
+#ifdef SERIAL_DEBUG
 	Serial.println("pattern_teamFirefly()");
 #endif
 
@@ -246,7 +246,7 @@ typedef struct
 	byte  x, y, z;
 } coord;
 
-static coord  v; // the current rgb coordinates (colour) being displayed
+static coord v; // the current rgb coordinates (colour) being displayed
 
 //The RGB colour space can be visualised as a cube whose (x, y, z) coordinates range from (0, 0, 0) 
 //  or white, to (255, 255, 255) or black. 
@@ -321,7 +321,7 @@ int traverse(int dx, int dy, int dz)
 
 void pattern_testLED()
 {
-#ifdef DEBUG
+#ifdef SERIAL_DEBUG
 	Serial.println("Begin pattern: testLED rgb test");
 #endif
 	while (true) {
@@ -342,7 +342,7 @@ void pattern_testLED()
 
 void pattern_rgbFader()
 {
-#ifdef DEBUG
+#ifdef SERIAL_DEBUG
 	Serial.println("Begin pattern: rgbPulse");
 #endif
 	while (true) 
@@ -379,7 +379,7 @@ void pattern_rgbFader()
 // PATTERN_PULSER:
 void pattern_rgbpulse() {
 	int r, g, b;
-#ifdef DEBUG
+#ifdef SERIAL_DEBUG
 	Serial.println("pattern_rgbPulse()");
 #endif
 	while (true)
@@ -420,7 +420,7 @@ void pattern_rgbpulse() {
 // = = = = = = = = = = = = = = = = = = = = = = = = = = =
 // PATTERN_CLOCKSYNC:
 void pattern_clockSync( ) {
-#ifdef DEBUG
+#ifdef SERIAL_DEBUG
 	Serial.println("pattern_clockSync()");
 #endif
 	// rf12b-calibrated, about the time it takes to send a packet in milliseconds
@@ -473,7 +473,7 @@ void pattern_clockSync( ) {
 		while (millis() < time_end) { //listen for pings until the time is up
 			//      debounceInputs();
 			if (rf12_recvDone() && !rf12_crc) { //if we get a good packet
-#ifdef DEBUG
+#ifdef SERIAL_DEBUG
 				//        Serial.print("rf12_len "); Serial.println(rf12_len);
 				//        Serial.print("rf12_data[0] "); Serial.println(rf12_data[0]);
 #endif
@@ -496,7 +496,7 @@ void pattern_clockSync( ) {
 		while (millis() < time_end) { //listen for pings until the time is up
 			//      debounceInputs();
 			if (rf12_recvDone() && rf12_crc == 0){ //if we get a good packet
-#ifdef DEBUG
+#ifdef SERIAL_DEBUG
 				//        Serial.print("rf12_len "); Serial.println(rf12_len);
 				//        Serial.print("rf12_data[0] "); Serial.println(rf12_data[0]);
 #endif

@@ -33,7 +33,7 @@
 #define rf12_configDump()   // disabled
 #else
 #define TINY        0
-#define SERIAL_BAUD 112500   // adjust as needed
+#define SERIAL_BAUD 57600   // adjust as needed
 #define DATAFLASH   0       // set to 0 for non-JeeLinks, else 4/8/16 (Mbit)
 #define LED_PIN     9       // activity LED, comment out to disable
 #endif
@@ -525,6 +525,7 @@ static void handleInput (char c) {
                 showString(PSTR("erased\n"));
             }
             break;
+
         case 'p': // select a new pattern
             //immediately change pattern:
             pattern_set(value);
@@ -593,7 +594,7 @@ void rf12_loop () {
         handleInput(Serial.read());
 #endif
     if (rf12_recvDone()) {
-#ifdef DEBUG
+#ifdef SERIAL_DEBUG
         byte n = rf12_len;
         if (rf12_crc == 0)
             showString(PSTR("OK"));
@@ -638,6 +639,7 @@ void rf12_loop () {
             displayASCII((const byte*) rf12_data, n);
         }
 #endif
+
         if (rf12_crc == 0) {
             activityLed(1);
 
@@ -645,7 +647,9 @@ void rf12_loop () {
                 df_append((const char*) rf12_data - 2, rf12_len + 2);
 
             if (RF12_WANTS_ACK && (config.collect_mode) == 0) {
+#ifdef SERIAL_DEBUG
                 showString(PSTR(" -> ack\n"));
+#endif
                 rf12_sendStart(RF12_ACK_REPLY, 0, 0);
             }
             activityLed(0);

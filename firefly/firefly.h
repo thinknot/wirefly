@@ -3,7 +3,7 @@
 
 #define WIREFLY_VERSION "[Wirefly 08-2017]"
 // comment out below before compiling production codez!
-#define DEBUG 1
+#define SERIAL_DEBUG 1
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 // = = = = = = = = = = = = = = = = = = = = = = = = = = =

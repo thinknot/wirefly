@@ -29,6 +29,8 @@ static int WIREFLY_TIMER_IMMUNE = 16384;
 
 // = = = = = = = = = = = = = = = = = = = = = = = = = = =
 void loop() {
+	// the next three statements are intended to be equivalent to rf12_loop()
+
 	//PHASE1: input, listen
 	wirefly_interrupt(); // note that patterns can call pattern_interrupt(), on their own time
 
@@ -37,6 +39,7 @@ void loop() {
 
 	//PHASE3: display
 	pattern_run();  // switches control to the active pattern
+
 }
 
 // = = = = = = = = = = = = = = = = = = = = = = = = = = =
@@ -68,7 +71,7 @@ int wirefly_interrupt() {
 	//check to see if either serial or network changed the pattern
 	boolean patternChanged = (pattern_get() != current_pattern);
 	if (patternChanged) {
-#ifdef DEBUG
+#ifdef SERIAL_DEBUG
 		// log if new pattern detected
 		Serial.print("wirefly_interrupt() old pattern: ");
 		Serial.print(current_pattern);
@@ -148,7 +151,7 @@ int wirefly_send() {
     wirefly_msg_stack[1] = pattern_get(); //send the pattern as integer
     wirefly_msg_sendLen = 2;
     wirefly_msg_dest = 0; //broadcast message
-#ifdef DEBUG
+#ifdef SERIAL_DEBUG
     showString(PSTR("Send -> "));
     Serial.println((byte) wirefly_msg_stack[0]);
 #endif
@@ -173,7 +176,6 @@ void setup() {
   rf12_setup();
 
 	pattern_set(PATTERN_OFF);
-
 	randomSeed(analogRead(0));
 	wirefly_sendTimer.set(0); //we want to send a message quickly
 
